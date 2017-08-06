@@ -11,7 +11,7 @@ Thanks.
 ## Basic Concept
 Tinode follow loosely publish & subscribe architecture. So it is a little bit different than normal http request & response architecture. For example in Tinode, it is common to get multiple packet as a response just from a single request packet.
 
-Notice following example request for getting message history from `P2P` topic we are currently subscribing:
+Notice following example request for getting message history from P2P topic we are currently subscribing:
 ```
 {
   "get": {
@@ -640,7 +640,7 @@ Currently there is no single command to do all of these actions.
 
 After we found the user's `id` we want to connect which located in `meta.sub[0].user` (or `meta.sub[i].user` if we select from `me` subscribers result), we could then pass this value to `sub.topic` in `{sub}` packet.
 
-After we subscribed to `p2p` topic, we will be able to receive message sent by our target user, vice versa.
+After we subscribed to `p2p` topic, we will be able to receive message from & send message to our target.
 
 **Example request:**
 ```
@@ -675,6 +675,78 @@ After we subscribed to `p2p` topic, we will be able to receive message sent by o
 **References:**
 
 - https://github.com/tinode/chat/blob/devel/API.md#sub
+
+### Getting P2P Message History
+
+To get message history, we use `get` packet.
+
+**Example request:**
+```
+{
+  "get": {
+    "id": "get p2p history messages with new 2",
+    "topic": "usroVhYlDImeqk",
+    "what": "data"
+  }
+}
+```
+
+**Success response:**
+```
+{
+  "data": {
+    "topic": "usroVhYlDImeqk",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-05T23:40:12.426Z",
+    "seq": 1,
+    "content": "Hello"
+  }
+}
+
+{
+  "data": {
+    "topic": "usroVhYlDImeqk",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-06T00:09:30.265Z",
+    "seq": 2,
+    "content": "Hello, new!"
+  }
+}
+
+{
+  "data": {
+    "topic": "usroVhYlDImeqk",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-06T00:09:41.552Z",
+    "seq": 3,
+    "content": "This is new2"
+  }
+}
+
+{
+  "data": {
+    "topic": "usroVhYlDImeqk",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-06T00:09:46.704Z",
+    "seq": 4,
+    "content": "do you remember?"
+  }
+}
+
+{
+  "ctrl": {
+    "id": "get p2p history messages with new 2",
+    "topic": "usroVhYlDImeqk",
+    "code": 200,
+    "text": "ok",
+    "ts": "2017-08-06T00:09:59.847Z"
+  }
+}
+```
+
+**References:**
+
+- https://github.com/tinode/chat/blob/devel/API.md#get
 
 ### Send Message to P2P Topic
 
