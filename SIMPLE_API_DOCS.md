@@ -1,5 +1,5 @@
-Tinode Protocol Simple Documentation
-===
+# Tinode Protocol Simple Documentation
+
 Hello, Guys!
 
 This document contains simple documentation for Tinode Protocol. As you’ve already know, Tinode project is still in its early stage + I'm still exploring it, so please expect there will be a lot of change to this document in the future.
@@ -8,7 +8,7 @@ This documentation is made purely based on my understanding on Tinode. If you fo
 
 Thanks.
 
-##Basic Concept
+## Basic Concept
 Tinode follow loosely publish & subscribe architecture. So it is a little bit different than normal http request & response architecture. For example in Tinode, it is common to get multiple packet as a response just from a single request packet.
 
 Notice following example request for getting message history from `P2P` topic we are currently subscribing:
@@ -77,7 +77,7 @@ Notice that at end of every response, there must be a `{ctrl}` packet which indi
 
 There are some other differences we need to understand in Tinode. But I will just put each of them on the corresponding sections.
 
-##Initiating Connection
+## Initiating Connection
 
 In Tinode, after we successfully connecting socket connection to the server, the first thing we need to do is sending `{hi}` packet. After the packet successfully accepted by the server, we could then proceed to:
 
@@ -126,7 +126,7 @@ In Tinode, after we successfully connecting socket connection to the server, the
 
 - https://github.com/tinode/chat/blob/devel/API.md#hi
 
-##Create New Account Credentials
+## Create New Account Credentials
 
 To create new account, we use `{acc}` packet. Notice that the value of `acc.user` need to be set to `"new"`.
 
@@ -281,7 +281,7 @@ There is also one optional parameter called `login`. We could set this parameter
 
 - https://github.com/tinode/chat/blob/devel/API.md#acc
 
-##Update Existing Account Credentials
+## Update Existing Account Credentials
  To update existing account credentials, we use `{acc}` packet with omitting `acc.user` field. The credentials possible to be updated with this packet are `acc.secret` & `acc.tags`.
 
 Unfortunately this feature has yet to be supported.
@@ -290,7 +290,7 @@ Unfortunately this feature has yet to be supported.
 
 - https://github.com/tinode/chat/blob/devel/server/session.go#L601-L611
 
-##Login
+## Login
 In Tinode, when we are authenticating the user, technically we are not authenticating the user itself, but rather authenticating current session which the user using to connect to server.
 
 So what happens when websocket session suddenly destroyed? Such as when there is a connection problem whether on client or server. Do we need to authenticate again?
@@ -354,9 +354,9 @@ Unfortunately there is a problem with `token` authentication. So currently it ca
 
 - https://github.com/tinode/chat/blob/devel/API.md#login
 
-##Make Online Presence
+## Make Online Presence
 
-###Subscribe `me` Topic
+### Subscribe `me` Topic
 
 When user login, it doesn't automatically come online. It needs to subscribe to its `me` topic first. When user already subscribed, its presence would be published to all other users which currently subscribed to this user's `me` topic (have `P2P` connection with this user).
 
@@ -394,7 +394,7 @@ When other user interact with this user's `me` topic, such as sending message to
 
 Notice that `sub` packet doesn't only used for subscribing to `me` topic, but also to any other topics: `p2p`, `group`, & `fnd`.
 
-###Get `me` Subscribers
+### Get `me` Subscribers
 
 To get existing `me` subscribers (a.k.a other users which already have P2P connection with this user), we use `{get}` packet.
 
@@ -478,9 +478,9 @@ The response of this command is combination between subscribe to `me` topic & ge
 - https://github.com/tinode/chat/blob/devel/API.md#get
 - https://github.com/tinode/chat/blob/devel/API.md#topics
 
-##Chat With Another User (P2P Topic)
+## Chat With Another User (P2P Topic)
 
-###Discover Another User
+### Discover Another User
 
 If we want to connect with new user, the first thing we need to know is its `id`. Fortunately in Tinode there is a special topic which we could use to discover other user's `id` which is called `fnd` topic. If we want to connect to already known user, please proceed to next section.
 
@@ -636,7 +636,7 @@ Currently there is no single command to do all of these actions.
 - https://github.com/tinode/chat/blob/devel/API.md#fnd-topic-contacts-discovery
 - https://github.com/tinode/chat/blob/devel/API.md#leave
 
-###Subscribing / Activate P2P Topic
+### Subscribing / Activate P2P Topic
 
 After we found the user's `id` we want to connect which located in `meta.sub[0].user` (or `meta.sub[i].user` if we select from `me` subscribers result), we could then pass this value to `sub.topic` in `{sub}` packet.
 
@@ -676,7 +676,7 @@ After we subscribed to `p2p` topic, we will be able to receive message sent by o
 
 - https://github.com/tinode/chat/blob/devel/API.md#sub
 
-###Send Message to P2P Topic
+### Send Message to P2P Topic
 
 We could use `{pub}` packet to send message to `p2p` topic we are already subscribed.
 
@@ -719,7 +719,7 @@ We could use `{pub}` packet to send message to `p2p` topic we are already subscr
 
 - https://github.com/tinode/chat/blob/devel/API.md#pub
 
-###Leave P2P Topic
+### Leave P2P Topic
 
 After we're done with `p2p` topic, we should leave the topic to stop receiving message with target user.
 
@@ -772,7 +772,7 @@ After we're done with `p2p` topic, we should leave the topic to stop receiving m
 
 - https://github.com/tinode/chat/blob/devel/API.md#leave
 
-##Logout
+## Logout
 
 By design, Tinode doesn't support user logout. The reason is maybe because what Tinode authenticate is not the user, but rather the websocket session which uses user's credentials information. Thus if we want to achieve logout functionality in app, we just need to destroy the websocket connection, then start all over again.
 
