@@ -89,7 +89,7 @@ In Tinode, after we successfully connecting socket connection to the server, the
 {  
    "hi":{  
       "id":"initiating connection",
-      "ver":"0.13", // current version of tinode protocol
+      "ver":"0.13",
       "ua":"TinodeWeb/0.13 (MacIntel) tinodejs/0.13"
    }
 }
