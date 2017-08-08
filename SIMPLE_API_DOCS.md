@@ -297,41 +297,52 @@ So what happens when websocket session suddenly destroyed? Such as when there is
 
 The answer to above question is yes, we need to authenticate our session again. But since it would be troublesome if we ask user to input username & password again, beside `basic` authentication scheme, Tinode also offers `token` authentication scheme. The token used for `token` authentication is obtained from the previous `basic` authentication.
 
-By design, it is possible for one user to have multiple active session at the same time. Thus user could login not only from one device at the same time.
+By design, it is possible for one user to have multiple active session at the same time. Thus user could login from multiple devices at the same time.
 
 **Example `basic` request:**
 ```
 {
   "login": {
-    "id": "user basic login",
+    "id": "user login",
     "scheme": "basic",
     "secret": "bmV3MTpuZXcx"
   }
 }
 ```
 
-**Success `basic` response:**
+**Example `token` request:**
 ```
 {
-  "ctrl": {
-    "id": "user basic login",
-    "params": {
-      "expires": "2017-08-06T09:54:18.651442954+07:00",
-      "token": "3BbzhEyaiPXahIZZFAAAAHbAI0CEQ7fk4cenZ0OEa/MDlUtlSqFvvXqLDzvPpsxt",
-      "user": "usr3BbzhEyaiPU"
-    },
-    "code": 200,
-    "text": "OK",
-    "ts": "2017-08-06T02:54:18.567Z"
+  "login": {
+    "id": "user login",
+    "scheme": "token",
+    "secret": "3BbzhEyaiPUle5tZFAABAKICLHJsZQq0D2WTquYowk/yjpZcdzaQSBrmq0WckdBJ"
   }
 }
 ```
 
-**Error `basic` response:**
+**Success response:**
 ```
 {
   "ctrl": {
-    "id": "user basic login",
+    "id": "user login",
+    "params": {
+      "expires": "2017-08-22T00:30:29Z",
+      "token": "3BbzhEyaiPUle5tZFAABAKICLHJsZQq0D2WTquYowk/yjpZcdzaQSBrmq0WckdBJ",
+      "user": "usr3BbzhEyaiPU"
+    },
+    "code": 200,
+    "text": "OK",
+    "ts": "2017-08-08T07:17:22.932Z"
+  }
+}
+```
+
+**Error responses:**
+```
+{
+  "ctrl": {
+    "id": "user login",
     "code": 401,
     "text": "authentication failed",
     "ts": "2017-08-06T02:59:26.691Z"
@@ -341,14 +352,13 @@ By design, it is possible for one user to have multiple active session at the sa
 ```
 {
   "ctrl": {
-    "id": "user basic login",
+    "id": "user login",
     "code": 409,
     "text": "already authenticated",
     "ts": "2017-08-06T02:55:16.284Z"
   }
 }
 ```
-Unfortunately there is a problem with `token` authentication. So currently it cannot be used.
 
 **References:**
 
