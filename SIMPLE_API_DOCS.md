@@ -488,6 +488,38 @@ The response of this command is combination between subscribe to `me` topic & ge
 - https://github.com/tinode/chat/blob/devel/API.md#get
 - https://github.com/tinode/chat/blob/devel/API.md#topics
 
+### Receiving `me` Notifications
+
+When the user already subscribed to `me` topic, they will be able to receive notifications from the topics which the user already have connection with. The notification itself is sent by server in form of `{pres}` packet.
+
+The notification will be sent by the server on various use cases. Some of the most common use cases are receiving online & message notification from other user (message notification is not the message itself, basically it is `{pres}` packet telling that other user is sending message to this user). For the complete list of use cases please see the references.
+
+**Example packets:**
+```
+{
+  "pres": {
+    "topic": "me",
+    "src": "usroVhYlDImeqk",
+    "what": "on"
+  }
+}
+```
+
+```
+{
+  "pres": {
+    "topic": "me",
+    "src": "usroVhYlDImeqk",
+    "what": "msg",
+    "seq": 30
+  }
+}
+```
+
+**References:**
+
+- https://github.com/tinode/chat/blob/devel/API.md#pres
+
 ## Chat With Another User (P2P Topic)
 
 ### Discover Another User
@@ -800,6 +832,27 @@ We could use `{pub}` packet to send message to `p2p` topic we are already subscr
 **References:**
 
 - https://github.com/tinode/chat/blob/devel/API.md#pub
+
+### Receiving Message from P2P Topic
+
+We will receive the message sent by other user by `{pub}` packet in form of `{data}` packet.
+
+**Example packet:**
+```
+{
+  "data": {
+    "topic": "usroVhYlDImeqk",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-09T00:44:47.484Z",
+    "seq": 29,
+    "content": "hello"
+  }
+}
+```
+
+**References:**
+
+- https://github.com/tinode/chat/blob/devel/API.md#data
 
 ### Leave P2P Topic
 
