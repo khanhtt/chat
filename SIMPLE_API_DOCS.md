@@ -73,7 +73,6 @@ The response of this request would be:
   }
 }
 ```
-Notice that at end of every response, there must be a `{ctrl}` packet which indicate that the server already finish responding to the request. We could use this packet to mark the end of the response of certain request.
 
 There are some other differences we need to understand in Tinode. But I will just put each of them on the corresponding sections.
 
@@ -402,11 +401,62 @@ When other user interact with this user's `me` topic, such as sending message to
 }
 ```
 
-Notice that `sub` packet doesn't only used for subscribing to `me` topic, but also to any other topics: `p2p`, `group`, & `fnd`.
+**Error response:**
+```
+{
+  "ctrl": {
+    "id": "make online presence",
+    "code": 304,
+    "text": "already subscribed",
+    "ts": "2017-08-10T09:48:42.012Z"
+  }
+}
+```
+
+Notice that `sub` packet doesn't only used for subscribing to `me` topic, but also for any other topics: `p2p`, `group`, & `fnd`.
+
+### Get `me` Profile
+
+To get `me` profile information (public information, private information, & default acccess for `P2P` topic), we use `{get}` packet with `get.what` value set to `"desc"`
+
+**Example request:**
+```
+{
+  "get": {
+    "id": "get me profile",
+    "topic": "me",
+    "what": "desc"
+  }
+}
+```
+
+**Success response:**
+```
+{
+  "meta": {
+    "id": "get me profile",
+    "topic": "me",
+    "ts": "2017-08-10T11:38:12.567Z",
+    "desc": {
+      "created": "2017-08-05T16:15:40.869Z",
+      "updated": "2017-08-09T22:33:32.85Z",
+      "defacs": {
+        "auth": "JRWPA",
+        "anon": "N"
+      },
+      "seq": 6,
+      "public": {
+        "fn": "new1"
+      }
+    }
+  }
+}
+
+```
 
 ### Get `me` Subscribers
 
-To get existing `me` subscribers (a.k.a other users which already have P2P connection with this user), we use `{get}` packet.
+To get existing `me` subscribers (a.k.a other users which already have P2P connection with this user), we use `{get}` packet with `get.what` value set to `"sub"`.
 
 **Example request:**
 ```
@@ -466,21 +516,181 @@ To get existing `me` subscribers (a.k.a other users which already have P2P conne
 }
 ```
 
-Notice that subscribe to `me` topic & get `me` subscribers in common use case is mostly inseparable. Thus Tinode provide convenient way for us to write these requests in one command:
+### Get `me` notification
 
+To get `me` notification (invitation to join topic & request approval), we use `{get}` packet with `get.what` value set to `"data"`.
+
+**Example request:**
+```
+{
+  "get": {
+    "id": "get me profile",
+    "topic": "me",
+    "what": "data"
+  }
+}
+```
+
+**Success response:**
+```
+{
+  "data": {
+    "topic": "me",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-05T23:40:09.926Z",
+    "seq": 1,
+    "content": {
+      "acs": {
+        "given": "JRWP",
+        "mode": "JRWP",
+        "want": "JRWP"
+      },
+      "act": "upd",
+      "authlvl": "auth",
+      "topic": "usroVhYlDImeqk",
+      "user": "usr3BbzhEyaiPU"
+    }
+  }
+}
+
+{
+  "data": {
+    "topic": "me",
+    "from": "usrolJNm1H2-Z8",
+    "ts": "2017-08-05T23:56:32.14Z",
+    "seq": 2,
+    "content": {
+      "acs": {
+        "given": "JRWP",
+        "mode": "JRWP",
+        "want": "JRWP"
+      },
+      "act": "upd",
+      "authlvl": "auth",
+      "topic": "usrolJNm1H2-Z8",
+      "user": "usr3BbzhEyaiPU"
+    }
+  }
+}
+
+{
+  "data": {
+    "topic": "me",
+    "from": "usroVhYlDImeqk",
+    "ts": "2017-08-08T03:51:56.393Z",
+    "seq": 3,
+    "content": {
+      "acs": {
+        "given": "JRWPS",
+        "mode": "JRWP",
+        "want": "JRWP"
+      },
+      "act": "inv",
+      "info": "Join my group!",
+      "topic": "grpwGrK1TJhoeQ",
+      "user": "usr3BbzhEyaiPU"
+    }
+  }
+}
+
+{
+  "data": {
+    "topic": "me",
+    "from": "usrWWw5MTFGJWU",
+    "ts": "2017-08-09T11:41:45.867Z",
+    "seq": 4,
+    "content": {
+      "acs": {
+        "given": "JRWPA",
+        "mode": "JRWP",
+        "want": "JRWP"
+      },
+      "act": "upd",
+      "authlvl": "auth",
+      "topic": "usrWWw5MTFGJWU",
+      "user": "usr3BbzhEyaiPU"
+    }
+  }
+}
+
+{
+  "data": {
+    "topic": "me",
+    "from": "usr2SBAaU1Hqrk",
+    "ts": "2017-08-09T11:51:30.401Z",
+    "seq": 5,
+    "content": {
+      "acs": {
+        "given": "JRWPA",
+        "mode": "JRWP",
+        "want": "JRWP"
+      },
+      "act": "upd",
+      "authlvl": "auth",
+      "topic": "usr2SBAaU1Hqrk",
+      "user": "usr3BbzhEyaiPU"
+    }
+  }
+}
+
+{
+  "data": {
+    "topic": "me",
+    "from": "usrV9_cBOsVGyw",
+    "ts": "2017-08-09T22:31:13.546Z",
+    "seq": 6,
+    "content": {
+      "acs": {
+        "given": "JRWPA",
+        "mode": "JRWP",
+        "want": "JRWP"
+      },
+      "act": "upd",
+      "authlvl": "auth",
+      "topic": "usrV9_cBOsVGyw",
+      "user": "usr3BbzhEyaiPU"
+    }
+  }
+}
+
+{
+  "ctrl": {
+    "id": "get me profile",
+    "topic": "me",
+    "code": 200,
+    "text": "ok",
+    "ts": "2017-08-10T11:47:40.319Z"
+  }
+}
+```
+
+### Bulk Command to Subscribe, Get Profile, Get Subscribers, & Get Notification of `me`
+
+Luckily Tinode provide convenient way to do all above actions. We could just do it with following command:
 ```
 {  
    "sub":{  
       "id":"make online presence",
       "topic":"me",
       "get":{  
-         "what":"sub"
+         "what":"desc sub data"
       }
    }
 }
 ```
 
-The response of this command is combination between subscribe to `me` topic & get `me` subscribers commands.
+If we only want to fetch the `me` info, we could use following command:
+```
+{
+  "get": {
+    "id": "get me info",
+    "topic": "me",
+    "what": "desc sub data"
+  }
+}
+```
+
+The response of these commands are combination between all of actions called.
 
 **References:**
 
