@@ -603,6 +603,7 @@ func topicInit(sreg *sessionJoin, h *Hub) {
                 t.perUser[uid] = userData
             }
         }
+        // test
 
 		// Clear original topic name.
 		t.x_original = ""
