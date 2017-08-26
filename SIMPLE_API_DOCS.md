@@ -475,39 +475,59 @@ To get existing `me` subscribers (a.k.a other users which already have P2P conne
   "meta": {
     "id": "get me subscribers",
     "topic": "me",
-    "ts": "2017-08-06T09:19:11.328Z",
+    "ts": "2017-08-26T00:29:20.796Z",
     "sub": [
       {
-        "updated": "2017-08-05T23:56:32.073Z",
+        "updated": "2017-08-24T04:04:57.339Z",
         "acs": {
-          "want": "JRWP",
-          "given": "JRWP",
-          "mode": "JRWP"
+          "want": "JRWPASDO",
+          "given": "JRWPASDO",
+          "mode": "JRWPASDO"
         },
+        "read": 3,
+        "recv": 3,
+        "public": {
+          "fn": "Yrom"
+        },
+        "topic": "grp4H09vuCq8SY",
+        "seq": 3,
+        "clear": 2
+      },
+      {
+        "updated": "2017-08-24T04:04:57.339Z",
+        "acs": {
+          "want": "JRWPA",
+          "given": "JRPA",
+          "mode": "JRPA"
+        },
+        "read": 3,
+        "recv": 3,
         "public": {
           "fn": "new2"
         },
-        "topic": "usroVhYlDImeqk",
-        "seq": 5,
+        "topic": "usr1_fj0-UO0_U",
+        "seq": 3,
         "seen": {
-          "when": "2017-08-06T06:44:11.053Z",
+          "when": "2017-08-24T14:10:45.329Z",
           "ua": "TinodeWeb/0.13 (MacIntel) tinodejs/0.13"
         }
       },
       {
-        "updated": "2017-08-05T23:56:32.073Z",
+        "updated": "2017-08-24T04:04:57.339Z",
         "acs": {
-          "want": "JRWP",
-          "given": "JRWP",
-          "mode": "JRWP"
+          "want": "JRWPA",
+          "given": "JRWPA",
+          "mode": "JRWPA"
         },
+        "read": 4,
+        "recv": 4,
         "public": {
-          "fn": "new3"
+          "fn": "new6"
         },
-        "topic": "usrolJNm1H2-Z8",
-        "seq": 1,
+        "topic": "usrumULnYRUgnM",
+        "seq": 4,
         "seen": {
-          "when": "2017-08-06T02:09:44.994Z",
+          "when": "2017-08-24T00:11:58.412Z",
           "ua": "TinodeWeb/0.13 (MacIntel) tinodejs/0.13"
         }
       }
