@@ -1,11 +1,14 @@
 package dynamodb
 
 import (
-    "encoding/json"
     "errors"
     "time"
     "strings"
     "math"
+    "fmt"
+    "hash/fnv"
+    "strconv"
+    "log"
     
     t "github.com/tinode/chat/server/store/types"
     "github.com/tinode/chat/server/store"
@@ -58,7 +61,7 @@ const (
 )
 
 // function to get ean, eav, & ue from arbitrary update item input
-func parseEanEavUeUpdateItem(update map[string]interface{}) (map[string]*string, map[string]*dynamodbattribute.AttributeValue, *string, error) {
+func parseEanEavUeUpdateItem(update map[string]interface{}) (map[string]*string, map[string]*dynamodb.AttributeValue, *string, error) {
 
     // prepare ean, eav, ue
     _update := make(map[string]interface{})
@@ -67,8 +70,9 @@ func parseEanEavUeUpdateItem(update map[string]interface{}) (map[string]*string,
     for k, v := range update {
         attributeNameLbl := "#" + k
         attributeValueLbl := ":" + k
-        ean[attributeValueLbl] = aws.String(k)
+        ean[attributeNameLbl] = aws.String(k)
         ue = ue + fmt.Sprintf("%v=%v, ", attributeNameLbl, attributeValueLbl)
+        _update[attributeValueLbl] = v
     }
     ue = ue[:len(ue)-2]
     eav, err := dynamodbattribute.MarshalMap(_update)
@@ -84,9 +88,9 @@ func (a *DynamoDBAdapter) Open(jsonstring string) error {
     
     sess, err := session.NewSessionWithOptions(session.Options{
         Config: aws.Config{
-            Region: aws.String("eu-central-1")
-            Endpoint: aws.String("http://localhost:8000")
-        }
+            Region: aws.String("eu-central-1"),
+            Endpoint: aws.String("http://localhost:8000"),
+        },
     })
     if err != nil {
         return err
@@ -122,7 +126,7 @@ func (a *DynamoDBAdapter) UserCreate(user *t.User) (error, bool) {
             if err != nil {
                 return err, false
             }
-            _, err := a.svc.PutItem(&dynamodb.PutItemInput{
+            _, err = a.svc.PutItem(&dynamodb.PutItemInput{
                 Item: tagRecord,
                 TableName: aws.String("tagunique"),
                 ConditionExpression: aws.String("attribute_not_exist(Id)"), //to ensure tag uniqueness
@@ -135,7 +139,7 @@ func (a *DynamoDBAdapter) UserCreate(user *t.User) (error, bool) {
     
     // set devices type to empty object if nil, unique to dynamodb
     if user.Devices == nil {
-        user.Devices = map[string]*DeviceDef{}
+        user.Devices = map[string]*t.DeviceDef{}
     }
     
     // insert user record to db
@@ -143,7 +147,7 @@ func (a *DynamoDBAdapter) UserCreate(user *t.User) (error, bool) {
     if err != nil {
         return err, false
     }
-    _, err := a.svc.PutItem(&dynamodb.PutItemInput{
+    _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: userRecord,
         TableName: aws.String("users"),
         ConditionExpression: aws.String("attribute_not_exists(Id)"),
@@ -164,7 +168,8 @@ func (a *DynamoDBAdapter) UserGet(uid t.Uid) (*t.User, error) {
     if err != nil {
         return nil, err    
     }
-    if result, err := a.svc.GetItem(&dynamodb.GetItemInput{ Key: kv, TableName: aws.String("users") }); err != nil {
+    result, err := a.svc.GetItem(&dynamodb.GetItemInput{ Key: kv, TableName: aws.String("users") })
+    if err != nil {
         return nil, err
     }
     
@@ -188,7 +193,7 @@ func (a *DynamoDBAdapter) UserGetAll(uids ...t.Uid) ([]t.User, error) {
     }
     // fetch items
     result, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
-        RequestItems: map[string]*dynamodb.KeysAndAttributes{USERS_TABLE:{Keys: kv}}
+        RequestItems: map[string]*dynamodb.KeysAndAttributes{USERS_TABLE:{Keys: kv}},
     })
     if err != nil {
         return nil, err
@@ -261,15 +266,13 @@ func (a *DynamoDBAdapter) UserUpdateLastSeen(uid t.Uid, userAgent string, when t
     }
     
     // update item
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         ExpressionAttributeValues: eav,
         Key: kv,
         TableName: aws.String(USERS_TABLE),
         UpdateExpression: aws.String("set LastSeen=:LastSeen, UserAgent=:UserAgent"),
     })
-    if err != nil {
-        return err
-    }
+    return err
 }
 
 func (a *DynamoDBAdapter) ChangePassword(id t.Uid, password string) error {
@@ -293,7 +296,7 @@ func (a *DynamoDBAdapter) UserUpdate(uid t.Uid, update map[string]interface{}) e
     }
     
     // update item
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         Key: kv,
         TableName: aws.String(USERS_TABLE),
         ExpressionAttributeNames: ean,
@@ -338,7 +341,7 @@ func (a *DynamoDBAdapter) GetAuthRecord(unique string) (t.Uid, int, []byte, time
     return t.ParseUid(record.UserId), record.AuthLvl, record.Secret, record.Expires, nil
 }
 
-func (a *DynamoDBAdapter) AddAuthRecord(user t.Uid, authLvl int, unique string, secret []byte, expires time.Time) (error, bool) {
+func (a *DynamoDBAdapter) AddAuthRecord(uid t.Uid, authLvl int, unique string, secret []byte, expires time.Time) (error, bool) {
     
     // prepare item
     item, err := dynamodbattribute.MarshalMap(map[string]interface{}{
@@ -353,9 +356,9 @@ func (a *DynamoDBAdapter) AddAuthRecord(user t.Uid, authLvl int, unique string, 
     }
     
     // put item
-    _, err := a.svc.PutItem(&PutItemInput{
+    _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: item,
-        TableName: aws.String(AUTH_TABLE)
+        TableName: aws.String(AUTH_TABLE),
     })
     if err != nil {
         if aerr, ok := err.(awserr.Error); ok && (aerr.Code() == dynamodb.ErrCodeConditionalCheckFailedException){
@@ -375,7 +378,7 @@ func (a *DynamoDBAdapter) DelAuthRecord(unique string) (int, error) {
     }
     
     // delete item
-    _, err := a.svc.DeleteItem(&dynamodb.DeleteItemInput{
+    _, err = a.svc.DeleteItem(&dynamodb.DeleteItemInput{
         Key: kv,
         TableName: aws.String(AUTH_TABLE),
     })
@@ -399,7 +402,7 @@ func (a *DynamoDBAdapter) DelAllAuthRecords(uid t.Uid) (int, error) {
         KeyConditionExpression: aws.String("userid = :userid"),
         IndexName: aws.String("userid"),
         TableName: aws.String(AUTH_TABLE),
-        ProjectionExpression: aws.String("unique")
+        ProjectionExpression: aws.String("unique"),
     })
     if err != nil {
         return 0, err
@@ -420,7 +423,7 @@ func (a *DynamoDBAdapter) DelAllAuthRecords(uid t.Uid) (int, error) {
             requests = append(requests, el)
         }
     }
-    _, err := a.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
+    _, err = a.svc.BatchWriteItem(&dynamodb.BatchWriteItemInput{
         RequestItems: map[string][]*dynamodb.WriteRequest{
             AUTH_TABLE: requests,
         },
@@ -455,7 +458,7 @@ func (a *DynamoDBAdapter) UpdAuthRecord(unique string, authLvl int, secret []byt
     }
     
     // update item
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         ExpressionAttributeNames: ean,
         ExpressionAttributeValues: eav,
         Key: kv,
@@ -473,7 +476,7 @@ func (a *DynamoDBAdapter) TopicCreate(topic *t.Topic) error {
     if err != nil {
         return err
     }
-    _, err := a.svc.PutItem(&dynamodb.PutItemInput{
+    _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: item,
         TableName: aws.String(TOPICS_TABLE),
     })
@@ -488,7 +491,7 @@ func (a *DynamoDBAdapter) TopicCreateP2P(initiator, invited *t.Subscription) err
     if err != nil {
         return err
     }
-    _, err := a.svc.PutItem(&dynamodb.PutItemInput{
+    _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: item,
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
     })
@@ -502,10 +505,10 @@ func (a *DynamoDBAdapter) TopicCreateP2P(initiator, invited *t.Subscription) err
     if err != nil {
         return err
     }
-    _, err := a.svc.PutItem(&dynamodb.PutItemInput{
+    _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: item,
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
-        ConditionExpression: aws.String("attribute_not_exists(Id)")
+        ConditionExpression: aws.String("attribute_not_exists(Id)"),
     })
     if err != nil {
         if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeConditionalCheckFailedException {
@@ -535,11 +538,11 @@ func (a *DynamoDBAdapter) TopicGet(topic string) (*t.Topic, error) {
     if len(result.Item) == 0 {
         return nil, nil
     }
-    var topic t.Topic
-    if err = dynamodbattribute.UnmarshalMap(result, &topic); err != nil {
-        return nil, nil
+    var t t.Topic
+    if err = dynamodbattribute.UnmarshalMap(result.Item, &t); err != nil {
+        return nil, err
     }
-    return &topic, nil
+    return &t, nil
 }
 
 func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscription, error) {
@@ -568,7 +571,7 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
         return nil, err
     }
     var subs []t.Subscription
-    if err = dynamodbattribute.UnmashalListOfMaps(result, &subs); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
         return nil, err
     }
     // parse subscriptions for getting details of topic & user data
@@ -594,30 +597,30 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
             if err != nil {
                 return nil, err
             }
-            ukv := append(ukv, uel)
+            ukv = append(ukv, uel)
         }
         tel, err := dynamodbattribute.MarshalMap(TopicKey{sub.Topic})
         if err != nil {
             return nil, err
         }
-        tkv := append(tkv, tel)
+        tkv = append(tkv, tel)
         join[sub.Topic] = sub
     }
     // fetch topics data
     if len(tkv) > 0 {
-        result, err = a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
+        resTopics, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
             RequestItems: map[string]*dynamodb.KeysAndAttributes{ TOPICS_TABLE: { Keys: tkv } },
         })
         if err != nil {
             return nil, err
         }
         var topics []t.Topic
-        if err = dynamodbattribute.MarshalMap(result, &topics); err != nil {
+        if err = dynamodbattribute.UnmarshalListOfMaps(resTopics.Responses[TOPICS_TABLE], &topics); err != nil {
             return nil, err
         }
         for i := 0; i < len(topics); i++ {
-            top = &topics[i]
-            sub = join[top.Id]
+            top := &topics[i]
+            sub := join[top.Id]
             sub.ObjHeader.MergeTimes(&top.ObjHeader)
 			sub.SetSeqId(top.SeqId)
 			sub.SetHardClearId(top.ClearId)
@@ -628,14 +631,14 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
     }
     // fetch users data
     if len(ukv) > 0 {
-        result, err = a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
+        resUsers, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
             RequestItems: map[string]*dynamodb.KeysAndAttributes{ USERS_TABLE: { Keys: ukv } },
         })
         if err != nil {
             return nil, err
         }
         var users []t.User
-        if err = dynamodbattribute.MarshalMap(result, &users); err != nil {
+        if err = dynamodbattribute.UnmarshalListOfMaps(resUsers.Responses[USERS_TABLE], &users); err != nil {
             return nil, err
         }
         for i := 0; i < len(users); i++ {
@@ -643,10 +646,10 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
             uid2 := t.ParseUid(usr.Id)
             topic := uid.P2PName(uid2)
             if sub, ok := join[topic]; ok {
-                sub.ObjHeader.MergerTimes(&usr.ObjHeader)
+                sub.ObjHeader.MergeTimes(&usr.ObjHeader)
                 sub.SetPublic(usr.Public)
                 sub.SetWith(uid2.UserId())
-                sub.SetDefaultAccess(usr.Access.Auth, usr.Accesss.Anon)
+                sub.SetDefaultAccess(usr.Access.Auth, usr.Access.Anon)
                 sub.SetLastSeenAndUA(usr.LastSeen, usr.UserAgent)
             }
         }
@@ -694,14 +697,14 @@ func (a *DynamoDBAdapter) UsersForTopic(topic string, keepDeleted bool) ([]t.Sub
     
     if len(kv) > 0 {
         // fetch public value of user
-        result, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
+        resUsers, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
             RequestItems: map[string]*dynamodb.KeysAndAttributes{USERS_TABLE: { Keys: kv }},
         })
         if err != nil {
             return nil, err
         }
         var usrs []t.User
-        if err = dynamodbattribute.UnmarshalListOfMaps(result, &usrs); err != nil {
+        if err = dynamodbattribute.UnmarshalListOfMaps(resUsers.Responses[USERS_TABLE], &usrs); err != nil {
             return nil, err
         }
         for _, usr := range usrs {
@@ -765,11 +768,10 @@ func (a *DynamoDBAdapter) TopicUpdateOnMessage(topic string, msg *t.Message) err
         return err
     }
     
-    var err error
     var kv map[string]*dynamodb.AttributeValue
     input := &dynamodb.UpdateItemInput{
         ExpressionAttributeNames: ean,
-        ExpressionAtrributeValues: eav,
+        ExpressionAttributeValues: eav,
         UpdateExpression: ue,
     }
     var kObj interface{}
@@ -782,7 +784,7 @@ func (a *DynamoDBAdapter) TopicUpdateOnMessage(topic string, msg *t.Message) err
         input.TableName = aws.String(TOPICS_TABLE)
     }
     
-    kv, err := dynamodbattribute.MarshalMap(kObj)
+    kv, err = dynamodbattribute.MarshalMap(kObj)
     if err != nil {
         return err
     }
@@ -800,11 +802,11 @@ func (a *DynamoDBAdapter) TopicUpdate(topic string, update map[string]interface{
     if err != nil {
         return err
     }
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         Key: kv,
         TableName: aws.String(TOPICS_TABLE),
-        ExpressionAtrributeName: ean,
-        ExpressionAtrributeValues: eav,
+        ExpressionAttributeNames: ean,
+        ExpressionAttributeValues: eav,
         UpdateExpression: ue,
     })
     return err
@@ -834,14 +836,14 @@ func (a *DynamoDBAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subs
         return nil, errors.New("RethinkDb adapter: invalid user ID in SubsForUser")
     }
     
-    eav, err := dynamodbattribute.UnmarshalMap(map[string]string{
+    eav, err := dynamodbattribute.MarshalMap(map[string]string{
         ":User": forUser.String(),
     })
     if err != nil {
         return nil, err
     }
-    input := &QueryInput{
-        ExpressionAtrributeValues: eav,
+    input := &dynamodb.QueryInput{
+        ExpressionAttributeValues: eav,
         KeyConditionExpression: aws.String("User = :User"),
         IndexName: aws.String("User"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
@@ -856,7 +858,7 @@ func (a *DynamoDBAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subs
     }
     
     var subs []t.Subscription
-    if err = dynamodbattribute.UnmarshalMap(result, &subs); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
         return nil, err
     }
     return subs, nil
@@ -882,7 +884,7 @@ func (a *DynamoDBAdapter) SubsForTopic(topic string, keepDeleted bool) ([]t.Subs
         return nil, err
     }
     input := &dynamodb.QueryInput{
-        ExpressionAttributeValue: eav,
+        ExpressionAttributeValues: eav,
         KeyConditionExpression: aws.String("Topic = :Topic"),
         IndexName: aws.String("Topic"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
@@ -926,7 +928,7 @@ func (a *DynamoDBAdapter) SubsUpdate(topic string, user t.Uid, update map[string
     if err != nil {
         return err
     }
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         Key: kv,
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
         ExpressionAttributeNames: ean,
@@ -950,7 +952,7 @@ func (a *DynamoDBAdapter) SubsDelete(topic string, user t.Uid) error {
     if err != nil {
         return err
     }
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         ExpressionAttributeValues: eav,
         Key: kv,
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
@@ -980,7 +982,7 @@ func (a *DynamoDBAdapter) SubsDelForTopic(topic string) error {
     }
     
     // delete each subscriptions
-    if len(result.Items > 0) {
+    if len(result.Items) > 0 {
         type Record struct {
             User string
         }
@@ -999,12 +1001,12 @@ func (a *DynamoDBAdapter) SubsDelForTopic(topic string) error {
     return nil
 }
 
-func (a *DynamoDBAdapter) FindSubs(user t.Uid, query []interface{}) ([]t.Subscription, error) {
+func (a *DynamoDBAdapter) FindSubs(uid t.Uid, query []interface{}) ([]t.Subscription, error) {
     
     uniqueIdx := make(map[string]bool) // to ensure uniqueness of tag & userid
     
     // get user id from tagunique for each tag in query
-    var tkvs []map[string]*AttributeValue
+    var tkvs []map[string]*dynamodb.AttributeValue
     for _, q := range query {
         if tag, ok := q.(string); ok {
             if !uniqueIdx[tag] {
@@ -1017,9 +1019,9 @@ func (a *DynamoDBAdapter) FindSubs(user t.Uid, query []interface{}) ([]t.Subscri
             }
         }
     }
-    tkvs := tkvs[:MAX_RESULTS] // limit tags
+    tkvs = tkvs[:MAX_RESULTS] // limit tags
     
-    result, err := svc.BatchGetItem(&dynamodb.BatchGetItemInput{
+    result, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
         RequestItems: map[string]*dynamodb.KeysAndAttributes{ TAGUNIQUE_TABLE: { Keys: tkvs } },
     })
     if err != nil {
@@ -1031,12 +1033,12 @@ func (a *DynamoDBAdapter) FindSubs(user t.Uid, query []interface{}) ([]t.Subscri
         UserId string   `json:"Unique"`
     }
     var records []Record
-    if err = dynamodbattribute.UnmarshalListOfMaps(result, &records); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(result.Responses[TAGUNIQUE_TABLE], &records); err != nil {
         return nil, err
     }
     
     // fetch user id from user for each user id
-    var ukvs []map[string]*AttributeValue
+    var ukvs []map[string]*dynamodb.AttributeValue
     var userTagMap map[string]string
     for _, record := range records {
         // ensure uniqueness of user id in result
@@ -1047,12 +1049,12 @@ func (a *DynamoDBAdapter) FindSubs(user t.Uid, query []interface{}) ([]t.Subscri
             }
             ukvs = append(ukvs, kv)
             userTagMap[record.UserId] = record.Tag
-            uniqueIdx[record.userId] = true
+            uniqueIdx[record.UserId] = true
         }
     }
-    ukvs := ukvs[:MAX_RESULTS] // limit users
-    result, err := svc.BatchGetItem(&dynamodb.BatchGetItemInput{
-        RequestItems: map[string]*dynamodb.KeysAndAttributes{ USERS_TABLE: { Keys: ukvs } }
+    ukvs = ukvs[:MAX_RESULTS] // limit users
+    resUsers, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
+        RequestItems: map[string]*dynamodb.KeysAndAttributes{ USERS_TABLE: { Keys: ukvs } },
     })
     if err != nil {
         return nil, err
@@ -1060,7 +1062,7 @@ func (a *DynamoDBAdapter) FindSubs(user t.Uid, query []interface{}) ([]t.Subscri
     
     // parse result
     var users []t.User
-    if err = dynamodbattribute.UnmarshalListOfMaps(result, &users); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(resUsers.Responses[USERS_TABLE], &users); err != nil {
         return nil, err
     }
     var subs []t.Subscription
@@ -1081,11 +1083,11 @@ func (a *DynamoDBAdapter) FindSubs(user t.Uid, query []interface{}) ([]t.Subscri
 
 func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
     msg.SetUid(store.GetUid())
-    item, err := dyanmodbattribute.MarshalMap(msg)
+    item, err := dynamodbattribute.MarshalMap(msg)
     if err != nil {
         return err
     }
-    _, err := a.svc.PutItem(&dynamodb.PutItemInput{
+    _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: item,
         TableName: aws.String(MESSAGES_TABLE),
     })
@@ -1096,7 +1098,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
     
     since := 0
     before := math.MaxInt32
-    limit := int(MAX_MESSAGES_RETRIEVED)
+    limit := uint(MAX_MESSAGES_RETRIEVED)
     
     if opts != nil {
         if opts.Since > 0 {
@@ -1110,7 +1112,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
         }
     }
     
-    eav, err := dynamodbattribute.MarshalMap(map[string]string{
+    eav, err := dynamodbattribute.MarshalMap(map[string]interface{}{
         ":Topic": topic,
         ":Since": since,
         ":Before": before,
@@ -1121,34 +1123,34 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
     
     result, err := a.svc.Query(&dynamodb.QueryInput{
         ExpressionAttributeValues: eav,
-        KeyConditionExpression: "Topic = :Topic and SeqId between :Since and :Before",
+        KeyConditionExpression: aws.String("Topic = :Topic and SeqId between :Since and :Before"),
         TableName: aws.String(MESSAGES_TABLE),
-        Limit: aws.Int64(int64(Limit)),
+        Limit: aws.Int64(int64(limit)),
     })
     if err != nil {
         return nil, err
     }
     var items []map[string]*dynamodb.AttributeValue
-    items = append(items, result.Items)
+    items = append(items, result.Items...)
     
     for len(result.LastEvaluatedKey) != 0 {
         result, err := a.svc.Query(&dynamodb.QueryInput{
             ExpressionAttributeValues: eav,
-            KeyConditionExpression: "Topic = :Topic and SeqId between :Since and :Before",
+            KeyConditionExpression: aws.String("Topic = :Topic and SeqId between :Since and :Before"),
             TableName: aws.String(MESSAGES_TABLE),
-            Limit: aws.Int64(int64(Limit)),
+            Limit: aws.Int64(int64(limit)),
             ExclusiveStartKey: result.LastEvaluatedKey,
         })
         if err != nil {
             return nil, err
         }
-        items = append(items, result.Items)
+        items = append(items, result.Items...)
     }
     items = items[:limit] // trim result to match wanted limit
     
     var msgs []t.Message
     if err = dynamodbattribute.UnmarshalListOfMaps(items, &msgs); err != nil {
-        return [], err
+        return nil, err
     }
     
     requester := forUser.String()
@@ -1196,7 +1198,7 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
             return err
         }
         _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
-            ExpressionAttributeValue: eav,
+            ExpressionAttributeValues: eav,
             Key: kv,
             TableName: aws.String(USERS_TABLE),
             UpdateExpression: ue,
@@ -1215,7 +1217,7 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
             return err
         }
         _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
-            ExpressionAttributeValue: eav,
+            ExpressionAttributeValues: eav,
             Key: kv,
             TableName: aws.String(TOPICS_TABLE),
             UpdateExpression: ue,
@@ -1238,12 +1240,12 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
             SubscriptionKey{topic + ":" + uid2.String()},
         }
         for _, subKey := range subKeys {
-            kv, err := dynamodbattribute.MarshalMap(TopicKey{topic})
+            kv, err := dynamodbattribute.MarshalMap(subKey)
             if err != nil {
                 return err
             }
             _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
-                ExpressionAttributeValue: eav,
+                ExpressionAttributeValues: eav,
                 Key: kv,
                 TableName: aws.String(SUBSCRIPTIONS_TABLE),
                 UpdateExpression: ue,
@@ -1265,17 +1267,17 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
 func (a *DynamoDBAdapter) MessageDeleteList(topic string, forUser t.Uid, hard bool, list []int) error {
     // do parallel update using goroutine for faster operation
     var errResult error
-    errCh := make(chan err)
+    errCh := make(chan error)
     for _, seqId := range list {
         go func(seqId int){
-            kv, err := dynamodbattribute.MarshalMap(TopicKey{topic, seqId})
+            kv, err := dynamodbattribute.MarshalMap(MessageKey{topic, seqId})
             if err != nil {
                 errCh <- err
                 return
             }
             
             var eav map[string]*dynamodb.AttributeValue
-            var ue *String
+            var ue *string
             
             if hard {
                 // hard == true, set DeletedAt to now
@@ -1285,7 +1287,7 @@ func (a *DynamoDBAdapter) MessageDeleteList(topic string, forUser t.Uid, hard bo
                 ue = aws.String("set DeletedAt = :DeletedAt")
             } else {
                 // hard == false, append current user id to DeletedFor along with timestamp
-                eav, err := dynamodbattribute.MarshalMap(map[string]interface{}{
+                eav, err = dynamodbattribute.MarshalMap(map[string]interface{}{
                     ":DeletedFor": t.SoftDelete{
                         User: forUser.String(),
                         Timestamp: t.TimeNow(),
@@ -1302,7 +1304,7 @@ func (a *DynamoDBAdapter) MessageDeleteList(topic string, forUser t.Uid, hard bo
                 ExpressionAttributeValues: eav,
                 Key: kv,
                 TableName: aws.String(MESSAGES_TABLE),
-                UpdateExpression: ue
+                UpdateExpression: ue,
             })
             if err != nil {
                 errCh <- err
@@ -1328,7 +1330,7 @@ func deviceHasher(deviceId string) string {
 
 func (a *DynamoDBAdapter) DeviceUpsert(uid t.Uid, dev *t.DeviceDef) error {
     // prepare hash
-    hash := deviceHasher(def.DeviceId)
+    hash := deviceHasher(dev.DeviceId)
     // prepare key
     kv, err := dynamodbattribute.MarshalMap(UserKey{uid.String()})
     if err != nil {
@@ -1340,8 +1342,8 @@ func (a *DynamoDBAdapter) DeviceUpsert(uid t.Uid, dev *t.DeviceDef) error {
     if err != nil {
         return err
     }
-    ue = aws.String("SET Devices.#device = :device")
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    ue := aws.String("SET Devices.#device = :device")
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         ExpressionAttributeNames: ean,
         ExpressionAttributeValues: eav,
         Key: kv,
@@ -1360,7 +1362,7 @@ func (a *DynamoDBAdapter) DeviceGetAll(uids ...t.Uid) (map[t.Uid][]t.DeviceDef, 
             kvs = append(kvs, el)
         }
     }
-    result, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
+    resUsers, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
         RequestItems: map[string]*dynamodb.KeysAndAttributes{ USERS_TABLE: { Keys: kvs, ProjectionExpression: aws.String("Id, Devices") } },
     })
     if err != nil {
@@ -1371,13 +1373,14 @@ func (a *DynamoDBAdapter) DeviceGetAll(uids ...t.Uid) (map[t.Uid][]t.DeviceDef, 
         Devices map[string]*t.DeviceDef
     }
     var records []Record
-    if err = dynamodbattribute.UnmarshalListOfMaps(result, &records); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(resUsers.Responses[USERS_TABLE], &records); err != nil {
         return nil, 0, err 
     }
     
     // convert devices map into list for each record, then put it on container map
     result := make(map[t.Uid][]t.DeviceDef)
     count := 0
+    var uid t.Uid
     for _, record := range records {
         if len(record.Devices) > 0 {
             if err := uid.UnmarshalText([]byte(record.Id)); err != nil {
@@ -1409,8 +1412,8 @@ func (a *DynamoDBAdapter) DeviceDelete(uid t.Uid, deviceId string) error {
     }
     // prepare ean, ue
     ean := map[string]*string { "#device": aws.String(hash) }
-    ue = aws.String("REMOVE Devices.#device")
-    _, err := a.svc.UpdateItem(&dynamodb.UpdateItemInput{
+    ue := aws.String("REMOVE Devices.#device")
+    _, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
         ExpressionAttributeNames: ean,
         Key: kv,
         TableName: aws.String(USERS_TABLE),
