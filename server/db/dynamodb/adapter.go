@@ -574,7 +574,7 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
         Limit: aws.Int64(int64(MAX_RESULTS)),
     }
     if !keepDeleted {
-        input.FilterExpression = aws.String("DeletedAt = NOT_NULL")
+        input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
     }
     result, err := a.svc.Query(input)
     if err != nil {
@@ -684,7 +684,7 @@ func (a *DynamoDBAdapter) UsersForTopic(topic string, keepDeleted bool) ([]t.Sub
         Limit: aws.Int64(int64(MAX_RESULTS)),
     }
     if !keepDeleted {
-        input.FilterExpression = aws.String("DeletedAt = NOT_NULL")
+        input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
     }
     result, err := a.svc.Query(input)
     if err != nil {
@@ -844,7 +844,7 @@ func (a *DynamoDBAdapter) SubscriptionGet(topic string, user t.Uid) (*t.Subscrip
 
 func (a *DynamoDBAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subscription, error) {
     if forUser.IsZero() {
-        return nil, errors.New("RethinkDb adapter: invalid user ID in SubsForUser")
+        return nil, errors.New("Invalid user ID in SubsForUser")
     }
     
     eav, err := dynamodbattribute.MarshalMap(map[string]string{
@@ -854,14 +854,17 @@ func (a *DynamoDBAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subs
         return nil, err
     }
     input := &dynamodb.QueryInput{
+        ExpressionAttributeNames: map[string]*string{
+            "#User": aws.String("User"),  
+        },
         ExpressionAttributeValues: eav,
-        KeyConditionExpression: aws.String("User = :User"),
+        KeyConditionExpression: aws.String("#User = :User"),
         IndexName: aws.String("UserUpdatedAt"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
         Limit: aws.Int64(int64(MAX_RESULTS)),
     }
     if !keepDeleted {
-        input.FilterExpression = aws.String("DeletedAt = NOT_NULL")
+        input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
     }
     result, err := a.svc.Query(input)
     if err != nil {
@@ -894,6 +897,7 @@ func (a *DynamoDBAdapter) SubsForTopic(topic string, keepDeleted bool) ([]t.Subs
     if err != nil {
         return nil, err
     }
+    
     input := &dynamodb.QueryInput{
         ExpressionAttributeValues: eav,
         KeyConditionExpression: aws.String("Topic = :Topic"),
@@ -902,12 +906,13 @@ func (a *DynamoDBAdapter) SubsForTopic(topic string, keepDeleted bool) ([]t.Subs
         Limit: aws.Int64(int64(MAX_RESULTS)),
     }
     if !keepDeleted {
-        input.FilterExpression = aws.String("DeletedAt = NOT_NULL")
+        input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
     }
     result, err := a.svc.Query(input)
     if err != nil {
         return nil, err
     }
+    
     // parse result
     var subs []t.Subscription
     if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
@@ -982,15 +987,19 @@ func (a *DynamoDBAdapter) SubsDelForTopic(topic string) error {
         return err
     }
     result, err := a.svc.Query(&dynamodb.QueryInput{
+        ExpressionAttributeNames: map[string]*string{
+            "#User": aws.String("User"),
+        },
         ExpressionAttributeValues: eav,
         KeyConditionExpression: aws.String("Topic = :Topic"),
         IndexName: aws.String("Topic"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
-        ProjectionExpression: aws.String("User"),
+        ProjectionExpression: aws.String("#User"),
     })
     if err != nil {
         return err
     }
+    // TODO: we should check result.LastEvaluatedKey to ensure completeness of the result
     
     // delete each subscriptions
     if len(result.Items) > 0 {
@@ -1109,6 +1118,8 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
     return err
 }
 
+// ini nanti pattern fetch message perlu dijelaskan ke k.dimas sm k.yacob
+// ini perlu di test dgn payload message yg banyak
 func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.BrowseOpt) ([]t.Message, error) {
     
     since := 0
@@ -1149,7 +1160,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
     var items []map[string]*dynamodb.AttributeValue
     items = append(items, result.Items...)
     
-    for len(result.LastEvaluatedKey) != 0 {
+    for len(result.LastEvaluatedKey) != 0 && len(items) < int(limit) {
         result, err := a.svc.Query(&dynamodb.QueryInput{
             ExpressionAttributeValues: eav,
             KeyConditionExpression: aws.String("Topic = :Topic and SeqId between :Since and :Before"),
