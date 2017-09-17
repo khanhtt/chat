@@ -1180,6 +1180,10 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
         return err
     }
     
+    if *item["DeletedFor"].NULL == true {
+        item["DeletedFor"] = &dynamodb.AttributeValue{L: []*dynamodb.AttributeValue{}}
+    }
+    
     // set expire duration
     expireDurationInSeconds := EXPIRE_DURATION_MESSAGE_ME
     switch(t.GetTopicCat(msg.Topic)) {
@@ -1373,6 +1377,7 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
 
 func (a *DynamoDBAdapter) MessageDeleteList(topic string, forUser t.Uid, hard bool, list []int) error {
     // do parallel update using goroutine for faster operation
+    
     var errResult error
     errCh := make(chan error)
     for _, seqId := range list {
@@ -1417,6 +1422,7 @@ func (a *DynamoDBAdapter) MessageDeleteList(topic string, forUser t.Uid, hard bo
                 errCh <- err
                 return
             }
+            errCh <- nil
         }(seqId)
     }
     
