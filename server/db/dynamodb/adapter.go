@@ -9,6 +9,7 @@ import (
     "hash/fnv"
     "strconv"
     "log"
+    "encoding/json"
     
     t "github.com/tinode/chat/server/store/types"
     "github.com/tinode/chat/server/store"
@@ -58,6 +59,10 @@ const (
     MAX_RESULTS int = 100
     MAX_DELETE_ITEMS int = 25
     MAX_MESSAGES_RETRIEVED int = 1024 // max messages retrieved in single get messages operation
+    
+    EXPIRE_DURATION_MESSAGE_GROUP int = 604800 // 1 week
+    EXPIRE_DURATION_MESSAGE_ME int = 2592000// 1 month
+    EXPIRE_DURATION_MESSAGE_P2P int = 31536000 // 1 year
 )
 
 // function to get ean, eav, & ue from arbitrary update item input
@@ -86,11 +91,21 @@ func (a *DynamoDBAdapter) Open(jsonstring string) error {
         return errors.New("adapter dynamodb is already connected")
     }
     
+    type Settings struct {
+        Region string       `json:"region"`
+        Endpoint string     `json:"endpoint"`
+        Profile string      `json:"profile"`
+    }
+    var settings Settings
+    if err := json.Unmarshal([]byte(jsonstring), &settings); err != nil {
+        return err
+    }
     sess, err := session.NewSessionWithOptions(session.Options{
         Config: aws.Config{
-            Region: aws.String("eu-central-1"),
-            Endpoint: aws.String("http://localhost:8000"),
+            Region: aws.String(settings.Region),
+            Endpoint: aws.String(settings.Endpoint),
         },
+        Profile: settings.Profile,
     })
     if err != nil {
         return err
@@ -114,8 +129,6 @@ func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 }
 
 func (a *DynamoDBAdapter) UserCreate(user *t.User) (error, bool) {
-    
-    log.Println("UserCreate() called!")
     
     // insert tags
     if user.Tags != nil {
@@ -571,7 +584,7 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
         FilterExpression: aws.String("#Topic <> :MeTopic and #Topic <> :FndTopic"), // skip over `me` & `fnd` topics
         IndexName: aws.String("UserUpdatedAt"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
-        Limit: aws.Int64(int64(MAX_RESULTS)),
+        //Limit: aws.Int64(int64(MAX_RESULTS)), // ini nggak make sense ya sebenarnya kalau cuma 100?
     }
     if !keepDeleted {
         input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
@@ -580,8 +593,19 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
     if err != nil {
         return nil, err
     }
+    var items []map[string]*dynamodb.AttributeValue
+    items = append(items, result.Items...)
+    for len(result.LastEvaluatedKey) > 0 {
+        input.ExclusiveStartKey = result.LastEvaluatedKey
+        result, err := a.svc.Query(input)
+        if err != nil {
+            return nil, err
+        }
+        items = append(items, result.Items...)
+    }
+    
     var subs []t.Subscription
-    if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(items, &subs); err != nil {
         return nil, err
     }
     
@@ -681,7 +705,7 @@ func (a *DynamoDBAdapter) UsersForTopic(topic string, keepDeleted bool) ([]t.Sub
         IndexName: aws.String("Topic"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
         KeyConditionExpression: aws.String("Topic = :Topic"),
-        Limit: aws.Int64(int64(MAX_RESULTS)),
+        //Limit: aws.Int64(int64(MAX_RESULTS)), // ini juga nggak make sense kalau di limit sebenarnya, kecuali ada confignya
     }
     if !keepDeleted {
         input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
@@ -690,9 +714,20 @@ func (a *DynamoDBAdapter) UsersForTopic(topic string, keepDeleted bool) ([]t.Sub
     if err != nil {
         return nil, err
     }
+    var items []map[string]*dynamodb.AttributeValue
+    items = append(items, result.Items...)
+    for len(result.LastEvaluatedKey) != 0 {
+        input.ExclusiveStartKey = result.LastEvaluatedKey
+        result, err = a.svc.Query(input)
+        if err != nil {
+            return nil, err
+        }
+        items = append(items, result.Items...)
+    }
+    
     // parse subscriptions
     var subs []t.Subscription
-    if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(items, &subs); err != nil {
         return nil, err
     }
     join := make(map[string]*t.Subscription)
@@ -861,7 +896,7 @@ func (a *DynamoDBAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subs
         KeyConditionExpression: aws.String("#User = :User"),
         IndexName: aws.String("UserUpdatedAt"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
-        Limit: aws.Int64(int64(MAX_RESULTS)),
+        //Limit: aws.Int64(int64(MAX_RESULTS)),
     }
     if !keepDeleted {
         input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
@@ -870,9 +905,20 @@ func (a *DynamoDBAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subs
     if err != nil {
         return nil, err
     }
+
+    var items []map[string]*dynamodb.AttributeValue
+    items = append(items, result.Items...)
+    for len(result.LastEvaluatedKey) > 0 {
+        input.ExclusiveStartKey = result.LastEvaluatedKey
+        result, err = a.svc.Query(input)
+        if err != nil {
+            return nil, err
+        }
+        items = append(items, result.Items...)
+    }
     
     var subs []t.Subscription
-    if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(items, &subs); err != nil {
         return nil, err
     }
     return subs, nil
@@ -903,7 +949,7 @@ func (a *DynamoDBAdapter) SubsForTopic(topic string, keepDeleted bool) ([]t.Subs
         KeyConditionExpression: aws.String("Topic = :Topic"),
         IndexName: aws.String("Topic"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
-        Limit: aws.Int64(int64(MAX_RESULTS)),
+        //Limit: aws.Int64(int64(MAX_RESULTS)),
     }
     if !keepDeleted {
         input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
@@ -912,10 +958,20 @@ func (a *DynamoDBAdapter) SubsForTopic(topic string, keepDeleted bool) ([]t.Subs
     if err != nil {
         return nil, err
     }
+    var items []map[string]*dynamodb.AttributeValue
+    items = append(items, result.Items...)
+    for len(result.LastEvaluatedKey) > 0 {
+        input.ExclusiveStartKey = result.LastEvaluatedKey
+        result, err = a.svc.Query(input)
+        if err != nil {
+            return nil, err
+        }
+        items = append(items, result.Items...)
+    }
     
     // parse result
     var subs []t.Subscription
-    if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &subs); err != nil {
+    if err = dynamodbattribute.UnmarshalListOfMaps(items, &subs); err != nil {
         return nil, err
     }
     for i := 0; i < len(subs); i++ {
@@ -986,7 +1042,8 @@ func (a *DynamoDBAdapter) SubsDelForTopic(topic string) error {
     if err != nil {
         return err
     }
-    result, err := a.svc.Query(&dynamodb.QueryInput{
+    
+    input := &dynamodb.QueryInput{
         ExpressionAttributeNames: map[string]*string{
             "#User": aws.String("User"),
         },
@@ -995,19 +1052,30 @@ func (a *DynamoDBAdapter) SubsDelForTopic(topic string) error {
         IndexName: aws.String("Topic"),
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
         ProjectionExpression: aws.String("#User"),
-    })
+    }
+    result, err := a.svc.Query(input)
     if err != nil {
         return err
     }
-    // TODO: we should check result.LastEvaluatedKey to ensure completeness of the result
+    var items []map[string]*dynamodb.AttributeValue
+    items = append(items, result.Items...)
+    
+    for len(result.LastEvaluatedKey) != 0 {
+        input.ExclusiveStartKey = result.LastEvaluatedKey
+        result, err = a.svc.Query(input)
+        if err != nil {
+            return err
+        }
+        items = append(items, result.Items...)
+    }
     
     // delete each subscriptions
-    if len(result.Items) > 0 {
+    if len(items) > 0 {
         type Record struct {
             User string
         }
         var records []Record
-        if err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &records); err != nil {
+        if err = dynamodbattribute.UnmarshalListOfMaps(items, &records); err != nil {
             return err
         }
         
@@ -1111,6 +1179,18 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
     if err != nil {
         return err
     }
+    
+    // set expire duration
+    expireDurationInSeconds := EXPIRE_DURATION_MESSAGE_ME
+    switch(t.GetTopicCat(msg.Topic)) {
+    case t.TopicCat_P2P:
+        expireDurationInSeconds = EXPIRE_DURATION_MESSAGE_P2P
+    case t.TopicCat_Grp:
+        expireDurationInSeconds = EXPIRE_DURATION_MESSAGE_GROUP
+    }
+    expireTimeUnix := time.Now().UTC().Add(time.Duration(expireDurationInSeconds) * time.Second).Unix()
+    item["ExpireTime"] = &dynamodb.AttributeValue{N: aws.String(fmt.Sprintf("%d", expireTimeUnix))}
+    
     _, err = a.svc.PutItem(&dynamodb.PutItemInput{
         Item: item,
         TableName: aws.String(MESSAGES_TABLE),
@@ -1160,7 +1240,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
     var items []map[string]*dynamodb.AttributeValue
     items = append(items, result.Items...)
     
-    for len(result.LastEvaluatedKey) != 0 && len(items) < int(limit) {
+    for len(result.LastEvaluatedKey) != 0 {
         result, err := a.svc.Query(&dynamodb.QueryInput{
             ExpressionAttributeValues: eav,
             KeyConditionExpression: aws.String("Topic = :Topic and SeqId between :Since and :Before"),
@@ -1173,9 +1253,6 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
             return nil, err
         }
         items = append(items, result.Items...)
-    }
-    if len(items) > int(limit) {
-        items = items[:limit] // trim result to match wanted limit
     }
         
     var msgs []t.Message
