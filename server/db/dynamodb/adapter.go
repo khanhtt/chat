@@ -154,19 +154,17 @@ func (a *DynamoDBAdapter) UserCreate(user *t.User) (error, bool) {
         }
     }
     
-    // set devices type to empty object if nil, unique to dynamodb
-    if user.Devices == nil {
-        user.Devices = map[string]*t.DeviceDef{}
-    }
-    
     // insert user record to db
-    userRecord, err := dynamodbattribute.MarshalMap(*user)
+    item, err := dynamodbattribute.MarshalMap(*user)
     if err != nil {
         log.Println(err)
         return err, false
     }
+    if *item["Devices"].NULL {
+        item["Devices"] = &dynamodb.AttributeValue{M: map[string]*dynamodb.AttributeValue{}}
+    }
     _, err = a.svc.PutItem(&dynamodb.PutItemInput{
-        Item: userRecord,
+        Item: item,
         TableName: aws.String(USERS_TABLE),
         ConditionExpression: aws.String("attribute_not_exists(Id)"),
     })
