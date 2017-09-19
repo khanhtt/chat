@@ -65,6 +65,14 @@ const (
     EXPIRE_DURATION_MESSAGE_P2P int = 31536000 // 1 year
 )
 
+type ErrorLogger struct {
+    Tag string
+}
+
+func (e *ErrorLogger) LogError(err error) {
+    log.Printf("[%v] %v\n", e.Tag, err)
+}
+
 // function to get ean, eav, & ue from arbitrary update item input
 func parseEanEavUeUpdateItem(update map[string]interface{}) (map[string]*string, map[string]*dynamodb.AttributeValue, *string, error) {
 
@@ -857,6 +865,7 @@ func (a *DynamoDBAdapter) TopicUpdate(topic string, update map[string]interface{
 }
 
 func (a *DynamoDBAdapter) SubscriptionGet(topic string, user t.Uid) (*t.Subscription, error) {
+    eLog := ErrorLogger{"SubscriptionGet"}
     kv, err := dynamodbattribute.MarshalMap(SubscriptionKey{topic + ":" + user.String()})
     if err != nil {
         return nil, err
@@ -866,10 +875,12 @@ func (a *DynamoDBAdapter) SubscriptionGet(topic string, user t.Uid) (*t.Subscrip
         TableName: aws.String(SUBSCRIPTIONS_TABLE),
     })
     if err != nil || len(result.Item) == 0 {
+        eLog.LogError(err)
         return nil, err
     }
     var sub t.Subscription
     if err = dynamodbattribute.UnmarshalMap(result.Item, &sub); err != nil {
+        eLog.LogError(err)
         return nil, err
     }
     return &sub, nil
@@ -1172,9 +1183,12 @@ func (a *DynamoDBAdapter) FindSubs(uid t.Uid, query []interface{}) ([]t.Subscrip
 }
 
 func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
+    
+    eLog := ErrorLogger{"MessageSave"}
     msg.SetUid(store.GetUid())
     item, err := dynamodbattribute.MarshalMap(msg)
     if err != nil {
+        eLog.LogError(err)
         return err
     }
     
@@ -1197,6 +1211,9 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
         Item: item,
         TableName: aws.String(MESSAGES_TABLE),
     })
+    if err != nil {
+        eLog.LogError(err)
+    }
     return err
 }
 
@@ -1204,6 +1221,7 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
 // ini perlu di test dgn payload message yg banyak
 func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.BrowseOpt) ([]t.Message, error) {
     
+    eLog := ErrorLogger{"MessageGetAll"}
     since := 0
     before := math.MaxInt32
     limit := uint(MAX_MESSAGES_RETRIEVED)
@@ -1226,6 +1244,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
         ":Before": before,
     })
     if err != nil {
+        eLog.LogError(err)
         return nil, err
     }
     
@@ -1237,6 +1256,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
         ScanIndexForward: aws.Bool(false),
     })
     if err != nil {
+        eLog.LogError(err)
         return nil, err
     }
     var items []map[string]*dynamodb.AttributeValue
@@ -1252,6 +1272,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
             ScanIndexForward: aws.Bool(false),
         })
         if err != nil {
+            eLog.LogError(err)
             return nil, err
         }
         items = append(items, result.Items...)
@@ -1259,6 +1280,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
         
     var msgs []t.Message
     if err = dynamodbattribute.UnmarshalListOfMaps(items, &msgs); err != nil {
+        eLog.LogError(err)
         return nil, err
     }
     
