@@ -1221,6 +1221,8 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
 // ini perlu di test dgn payload message yg banyak
 func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.BrowseOpt) ([]t.Message, error) {
     
+    log.Printf("MessageGetAll() called, topic: %v, forUser: %v, opts: %v", topic, forUser.String(), opts)
+    
     eLog := ErrorLogger{"MessageGetAll"}
     since := 0
     before := math.MaxInt32
@@ -1263,7 +1265,7 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
     items = append(items, result.Items...)
     
     for len(result.LastEvaluatedKey) != 0 {
-        result, err := a.svc.Query(&dynamodb.QueryInput{
+        result, err = a.svc.Query(&dynamodb.QueryInput{
             ExpressionAttributeValues: eav,
             KeyConditionExpression: aws.String("Topic = :Topic and SeqId between :Since and :Before"),
             TableName: aws.String(MESSAGES_TABLE),
