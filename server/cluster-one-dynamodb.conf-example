@@ -21,9 +21,9 @@
 	},
     
     "cluster_config": {
-		"nodes": [{"name": "one", "addr":"localhost:12001"}, {"name": "two", "addr":"localhost:12002"}],
+		"nodes": [{"name": "one", "addr":"localhost:12000"}, {"name": "two", "addr":"10.0.3.172:12000"}],
 		"self": "one",
-		"listen": ":12001"
+		"listen": ":12000"
 	},
     
 	"store_config": {
