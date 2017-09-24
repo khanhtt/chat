@@ -603,7 +603,7 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
     items = append(items, result.Items...)
     for len(result.LastEvaluatedKey) > 0 {
         input.ExclusiveStartKey = result.LastEvaluatedKey
-        result, err := a.svc.Query(input)
+        result, err = a.svc.Query(input)
         if err != nil {
             return nil, err
         }
