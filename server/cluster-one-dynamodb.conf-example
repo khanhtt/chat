@@ -1,0 +1,60 @@
+{
+	"listen": ":6060",
+	"api_key_salt": "T713/rYYgW7g4m3vG6zGRh7+FM1t0T8j13koXScOAj4=",
+	"indexable_tags": ["tel", "email"],
+
+	"tls": {
+		"enabled": false,
+		"autocert": {
+			"cache": "certs",
+			"email": "use.your.own.email-or-remove-this-line@example.com",
+			"domains": ["use-you-own-domain.example.com"]
+		}
+	},
+	
+	"auth_config": {
+		"token": {
+			"expire_in": 1209600,
+			"serial_num": 1,
+			"key": "wfaY2RgF2S1OQI/ZlK+LSrp1KB2jwAdGAIHQ7JZn+Kc="
+		}
+	},
+    
+    "cluster_config": {
+		"nodes": [{"name": "one", "addr":"localhost:12001"}, {"name": "two", "addr":"localhost:12002"}],
+		"self": "one",
+		"listen": ":12001"
+	},
+    
+	"store_config": {
+		"worker_id": 1,
+		"uid_key": "la6YsO+bNX/+XIkOqc5Svw==",
+		"adapter": "dynamodb",
+		"adapter_config": {
+			"region": "eu-west-1",
+            "endpoint": "https://dynamodb.eu-west-1.amazonaws.com",
+			"profile": "dynamodbuser"
+		}
+	},
+
+	"push": [
+		{
+			"name":"stdout",
+			"config": {
+				"disabled": true
+			}
+		},
+		{
+			"name":"fcm",
+			"config": {
+				"disabled": true,
+				"buffer": 1024,
+				"api_key": "Get your own at https://console.firebase.google.com/project/**NAME-OF-YOUR-PROJECT**/settings/cloudmessaging",
+				"time_to_live": 3600,
+				"collapse_key": "",
+				"icon": "ic_logo_push",
+				"icon_color": "#3949AB"
+			}
+		}
+	]
+}
