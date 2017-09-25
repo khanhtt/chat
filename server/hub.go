@@ -141,8 +141,6 @@ func (h *Hub) run() {
 			timestamp := time.Now().UTC().Round(time.Millisecond)
 			if dst := h.topicGet(msg.rcptto); dst != nil {
 				// Everything is OK, sending packet to known topic
-				//log.Printf("Hub. Sending message to '%s'", dst.name)
-
 				if dst.broadcast != nil {
 					select {
 					case dst.broadcast <- msg:
@@ -240,7 +238,6 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 	// Request to load a 'me' topic. The topic always exists.
 	if t.x_original == "me" {
-		log.Println("hub: loading 'me' topic")
 
 		t.cat = types.TopicCat_Me
 
@@ -286,7 +283,6 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 		// Request to load a 'find' topic. The topic always exists.
 	} else if t.x_original == "fnd" {
-		log.Println("hub: loading 'fnd' topic")
 
 		t.cat = types.TopicCat_Fnd
 
@@ -323,7 +319,6 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 		// Request to load an existing or create a new p2p topic, then attach to it.
 	} else if strings.HasPrefix(t.x_original, "usr") || strings.HasPrefix(t.x_original, "p2p") {
-		log.Println("hub: loading or creating p2p topic")
 
 		// Handle the following cases:
 		// 1. Neither topic nor subscriptions exist: create a new p2p topic & subscriptions.
@@ -398,7 +393,7 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 			// Cases 1 (new topic), 2 (one of the two subscriptions is missing: either it's a new request
 			// or the subscription was deleted)
 
-			log.Println("hub: p2p new topic or one of the subs is missing")
+			log.Println("hub: creating new p2p topic")
 
 			var userData perUserData
 
@@ -433,6 +428,8 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 			// Set to true if only requester's subscription has to be created.
 			var user1only bool
 			if len(subs) == 1 {
+				log.Println("hub: one subscription already exists")
+
 				if subs[0].Uid() == userId1 {
 					// User2's subscription is missing, user1's exists
 					sub1 = &subs[0]
@@ -463,6 +460,8 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 				// Swap Public to match swapped Public in subs returned from store.Topics.GetSubs
 				sub2.SetPublic(users[u1].Public)
+
+				log.Println("hub: created second subscripton")
 			}
 
 			// Requester's subscription is missing:
@@ -515,6 +514,8 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 					Private:   userData.private}
 				// Swap Public to match swapped Public in subs returned from store.Topics.GetSubs
 				sub1.SetPublic(users[u2].Public)
+
+				log.Println("hub: created first subscription")
 			}
 
 			if !user1only {
@@ -570,7 +571,8 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 				modeGiven: sub2.ModeGiven,
 				clearId:   sub2.ClearId}
 
-			sreg.created = !user1only
+			log.Println("hub: marking request as 'topic created'")
+			sreg.created = true
 		}
         
         // make sure modeWant & modeGiven always have 'A' permission for both subscribers whether in existing or new P2P topic
@@ -609,7 +611,6 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 		// Processing request to create a new generic (group) topic:
 	} else if strings.HasPrefix(t.x_original, "new") {
-		log.Println("hub: new group topic")
 
 		t.cat = types.TopicCat_Grp
 
@@ -691,8 +692,6 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 		sreg.created = true
 
 	} else if strings.HasPrefix(t.x_original, "grp") {
-		log.Println("hub: existing group topic")
-
 		t.cat = types.TopicCat_Grp
 
 		// TODO(gene): check and validate topic name
@@ -797,6 +796,7 @@ func (t *Topic) loadSubscribers() error {
 // 1.2.2 If not the owner
 // 1.2.2.1 Delete subscription from DB
 // 1.2.3 Hub informs the origin of success or failure
+// 1.2.4 Send notification to subscribers that the topic was deleted
 
 // 2. Topic is just being unregistered (topic is going offline)
 // 2.1 Unregister it with no further action
@@ -807,6 +807,7 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 	if del {
 		// Case 1 (unregister and delete)
 		if t := h.topicGet(topic); t != nil {
+			log.Println("topicUnreg -- ONline")
 			// Case 1.1: topic is online
 			if t.owner == sess.uid || (t.cat == types.TopicCat_P2P && len(t.perUser) < 2) {
 				// Case 1.1.1: requester is the owner or last sub in a p2p topic
@@ -844,52 +845,72 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 
 		} else {
 			// Case 1.2: topic is offline.
-			if sub, err := store.Subs.Get(topic, sess.uid); err != nil {
-				log.Println("topicUnreg failed to load offline topic:", err)
+			log.Println("topicUnreg -- offline")
+
+			// Get all subscribers: we have to notify them all.
+			if subs, err := store.Topics.GetSubs(topic); err != nil {
+				log.Println("topicUnreg failed to load subscribers:", err)
 				sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
 				return
-			} else if sub == nil {
-				// If user has no subscription, tell him all is fine
-				sess.queueOut(InfoNoAction(msg.Id, msg.Topic, now))
-				return
-			} else if !(sub.ModeGiven & sub.ModeWant).IsOwner() {
-				// Case 1.2.2.1 Not the owner, but possibly last subscription in a P2P topic:
-				if topicCat(topic) == types.TopicCat_P2P {
-					// If this is a P2P topic, check how many subscriptions are left
-					if subs, err := store.Topics.GetSubs(topic); err != nil {
-						log.Println("topicUnreg failed to load subscribers:", err)
-						sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
-						return
-					} else if subs != nil && len(subs) < 2 {
-						// Fewer than 2 subscriptions, delete the entire topic
+			} else {
+				tcat := topicCat(topic)
+
+				var sub *types.Subscription
+				for i := 0; i < len(subs); i++ {
+					if subs[i].User == sess.uid.String() {
+						sub = &subs[i]
+						break
+					}
+				}
+
+				if sub == nil {
+					// If user has no subscription, tell him all is fine
+					sess.queueOut(InfoNoAction(msg.Id, msg.Topic, now))
+					return
+				} else if !(sub.ModeGiven & sub.ModeWant).IsOwner() {
+					// Case 1.2.2.1 Not the owner, but possibly last subscription in a P2P topic.
+
+					if tcat == types.TopicCat_P2P && subs != nil && len(subs) < 2 {
+						// This is a P2P topic and fewer than 2 subscriptions, delete the entire topic
 						if err := store.Topics.Delete(topic); err != nil {
 							log.Println("topicUnreg delete failed (2):", err)
 							sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
 							return
 						}
-						sess.queueOut(NoErr(msg.Id, msg.Topic, now))
+					} else {
+						// Not P2P or more than 1 subscription left.
+						// Delete user's own subscription only
+						if err := store.Subs.Delete(topic, sess.uid); err != nil {
+							log.Println("topicUnreg failed (3):", err)
+							sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
+							return
+						}
+					}
+
+					// Notify user's other sessions that the subscription is gone
+					log.Println("Notifying single user - sub deleted")
+					presSingleUserOfflineOffline(sess.uid, msg.Topic, "acs",
+						sub.ModeGiven&sub.ModeWant,
+						&PresParams{
+							dWant:  sub.ModeWant.Delta(types.ModeNone),
+							dGiven: sub.ModeGiven.Delta(types.ModeNone),
+						}, sess.sid)
+				} else {
+					// Case 1.2.1.1: owner, delete the topic from db
+					if err := store.Topics.Delete(topic); err != nil {
+						log.Println("topicUnreg failed (4):", err)
+						sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
 						return
 					}
+
+					// Notify subscribers that the topic is gone
+					log.Println("Notifying all subscribers - topic deleted")
+					presSubsOfflineOffline(msg.Topic, tcat, subs, "gone", &PresParams{}, sess.sid)
 				}
 
-				// Not owner or more than one subscription left in a P2P topic
-				if err := store.Subs.Delete(topic, sess.uid); err != nil {
-					log.Println("topicUnreg failed (3):", err)
-					sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
-					return
+				if sess != nil && msg != nil {
+					sess.queueOut(NoErr(msg.Id, msg.Topic, now))
 				}
-
-			} else {
-				// Case 1.2.1.1: owner, delete the topic from db
-				if err := store.Topics.Delete(topic); err != nil {
-					log.Println("topicUnreg failed (4):", err)
-					sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
-					return
-				}
-			}
-
-			if sess != nil && msg != nil {
-				sess.queueOut(NoErr(msg.Id, msg.Topic, now))
 			}
 		}
 

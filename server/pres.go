@@ -1,75 +1,59 @@
-/******************************************************************************
- *
- *  Description :
- *
- *  Handling of presence notifications
- *
- *****************************************************************************/
-
 package main
 
 import (
 	"log"
-	//"log"
 	"strings"
 
 	"github.com/tinode/chat/server/store"
 	"github.com/tinode/chat/server/store/types"
 )
 
-/*
-1. User joined `me`. Tell the user which of his/her topics/users of interest are currently online:
-	a. if the topic is loaded at this time
-		i. load the list of user's subscriptions
-		ii. store just the names in the t.perSubs with online set to false
-	  	iii. send a {pres} to t.perSub that the user is online
-		iv. Other 'me's will cache user's status in t.perSubs; grp & p2p won't cache
-		v. Other topics reply with their own online status
-	b. if the topic is already loaded, do nothing.
-	c. when the user subscribes (grp or p2p), add new subscription to t.perSub
-	`{pres topic="me" src="<topic name>" with="<user ID (P2P only)>" what="on" ua="<user agent>"}`
-2. User went offline (left `me` topic).
-	The message is sent to all users who have P2P topics with the first user. Users receive this event on
-	the `me` topic, `src` field contains user ID `src: "usr2il9suCbuko"`, `what` contains `"off"`:
-	`{pres topic="me" src="<topic name>" with="<user ID (p2p only)>" what="off" ua="..."}`.
-3. User updates `public` data. The event is sent to all users who have P2P topics with the first user.
-	Users receive `{pres topic="me" src="<p2p topic name>" with="<user ID (p2p only)>" what="upd"}`.
-4. User [joins (first session to join)]/[leaves (last session to leave)]/[leaves and unsubscribes] a topic:
-	a. to other joined users: `{pres topic="<topic name>" src="<user ID>" what="on|off|unsub"}`.
-	b. to user's own not joined sessions on unsubscribe only: `{pres topic="me" src="<topic name>" what="gone"}`
-5*. Topic is activated/deactivated/unsubscribed/deleted.
-	a. topic becomes active when at least one user joins it; inactive when all users leave it (possibly with some
-	delay); the event is sent to all topic subscribers who will receive it on their `me`:
-	`{pres topic="me" src="<topic name>" what="on|off|gone"}`.
-	on: activated; off: deactivated; gone: deleted
-	b. topic unsubscribed, unsubscribed user receives it on `me`:
-	`{pres topic="me" src="<topic name>" what="unsub"}`.
-6. A message published in the topic. The event is sent to users who have subscribed to the topic but currently
-	not joined (those who have joined will receive the {data}):
-	`{pres topic="me" src="<topic name>" what="msg" seq=123}`.
-7. Group topic's `public` is updated. The event is sent to all topic subscribers:
-	Users receive `{pres topic="me" src="<topic name>" what="upd"}`.
-8. User is has multiple sessions attached to 'me'. Sessions have different User Agents. Notify of UA change:
-	the message is sent to all users who have P2P topics with the first user. Users receive this event on
-	the `me` topic, `with` field contains user ID `src: "usr2il9suCbuko"`, `what` contains `"ua"`:
-	`{pres topic="me" src="<p2p topic name>" with="<user ID (p2p only)>" what="ua" ua="<user agent>"}`.
-9. User sent a {note} packet indicating that some or all of the messages in the topic as received or read,
-	OR sent a {del} message soft-deleting some messages. Sent only to other user's sessions (not the one
-	that sent the request).
-	a. read/received to not joined sessions only (informing joined makes no sense but can't skip it now):
-	`{pres topic="me" src="<topic name>" what="recv|read" seq=123}`.
-	b. msg deleted, not joined sessions: `{pres topic="me" src="<topic name>" what="del" seq=123}`
-	c. msg deleted, joined sessions: `{pres topic="<topic name>" src="<user id>" what="del" seq=123}`
-	-- cannot address just one user in a topic
-10. Messages were hard-deleted. The event is sent to all topic subscribers, joined and not joined:
-	a. joined: `{pres topic="<topic name>" src="<user id>" what="del" seq=123}`.
-	b. not joined: `{pres topic="me" src="<topic name>" what="del" seq=123}`.
-11. User subscribed to a new topic, inform user's other sessions. If the topic is P2p set 'with'.
-	`{pres topic="me" src="<topic name>" with="<user ID>" what="on"}`.
-*/
+type PresParams struct {
+	userAgent string
+	seqId     int
+	seqList   []int
 
-// loadContacts initializes topic.perSubs to support presence notifications
-// Case 1.a.i, 1.a.ii
+	// Uid who performed the action
+	actor string
+	// Subject of the action
+	target string
+	dWant  string
+	dGiven string
+}
+
+func (p PresParams) packAcs() *MsgAccessMode {
+	if p.dWant != "" || p.dGiven != "" {
+		return &MsgAccessMode{Want: p.dWant, Given: p.dGiven}
+	}
+	return nil
+}
+
+func (t *Topic) addToPerSubs(uid types.Uid, topic string) {
+	var with types.Uid
+	if strings.HasPrefix(topic, "p2p") {
+		if uid1, uid2, err := types.ParseP2P(topic); err == nil {
+			if uid1 == uid {
+				topic = uid2.UserId()
+				with = uid2
+			} else {
+				topic = uid1.UserId()
+				with = uid1
+			}
+		} else {
+			return
+		}
+	} else if topic == t.name {
+		// No need to push updates to self
+		return
+	}
+
+	//log.Printf("Pres loadContacts: topic[%s]: caching as '%s'", t.name, topic)
+	t.perSubs[topic] = perSubsData{with: with}
+}
+
+// loadContacts initializes topic.perSubs to support presence notifications.
+// perSubs contains (a) topics that the user wants to notify of his presence and
+// (b) those which want to receive notifications from this user.
 func (t *Topic) loadContacts(uid types.Uid) error {
 	subs, err := store.Users.GetSubs(uid)
 	if err != nil {
@@ -78,52 +62,31 @@ func (t *Topic) loadContacts(uid types.Uid) error {
 
 	t.perSubs = make(map[string]perSubsData, len(subs))
 	for _, sub := range subs {
-		//log.Printf("Pres 1.a.i-ii: topic[%s]: processing sub '%s'", t.name, sub.Topic)
-		topic := sub.Topic
-		var with types.Uid
-		if strings.HasPrefix(topic, "p2p") {
-			if uid1, uid2, err := types.ParseP2P(topic); err == nil {
-				if uid1 == uid {
-					topic = uid2.UserId()
-					with = uid2
-				} else {
-					topic = uid1.UserId()
-					with = uid1
-				}
-			} else {
-				continue
-			}
-		} else if topic == t.name {
-			// No need to push updates to self
-			continue
-		}
-		//log.Printf("Pres 1.a.i-ii: topic[%s]: caching as '%s'", t.name, topic)
-		t.perSubs[topic] = perSubsData{with: with}
+		//log.Printf("Pres loadContacts: topic[%s]: processing sub '%s'", t.name, sub.Topic)
+		t.addToPerSubs(uid, sub.Topic)
 	}
-	//log.Printf("Pres 1.a.i-ii: topic[%s]: total cached %d", t.name, len(t.perSubs))
+	//log.Printf("Pres loadContacts: topic[%s]: total cached %d", t.name, len(t.perSubs))
 	return nil
 }
 
-// Me topic activated, deactivated or updated, push presence to contacts
-// Case 1.a.iii, 2, 3 - called indirectly.
-func (t *Topic) presPubMeChange(what string, ua string) {
+// This topic got a request from a 'me' topic to start/stop sending presence updates. The
+// originating topic reports its own status as "on", "off" or "?unkn".
+func (t *Topic) presProcReq(fromUserId string, what string, wantReply bool) {
 
-	// Push update to subscriptions
-	for topic, _ := range t.perSubs {
-		globals.hub.route <- &ServerComMessage{
-			Pres: &MsgServerPres{
-				Topic: "me", What: what, Src: t.name, UserAgent: ua, wantReply: (what == "on")},
-			rcptto: topic}
+	var online, unknown bool
 
-		//log.Printf("Pres 1.a.iii, 2, 3: from '%s' (src: %s) to %s [%s], ua: '%s'", t.name, update.Src, topic, what, ua)
+	switch what {
+	case "on":
+		online = true
+	case "off":
+	case "?unkn":
+		unknown = true
+	default:
+		return
 	}
-}
 
-// This topic got a request from a 'me' topic to start/stop sending presence updates.
-// Cases 1.a.iv, 1.a.v
-func (t *Topic) presProcReq(fromUserId string, online, wantReply bool) {
-	log.Printf("Pres 1.a.iv, 1.a.v: topic[%s]: req from '%s', online: %v, wantReply: %v", t.name,
-		fromUserId, online, wantReply)
+	// log.Printf("presProcReq: topic[%s]: req from '%s', online: %s, wantReply: %v", t.name,
+	//	fromUserId, what, wantReply)
 
 	doReply := wantReply
 	if t.cat == types.TopicCat_Me {
@@ -133,130 +96,222 @@ func (t *Topic) presProcReq(fromUserId string, online, wantReply bool) {
 			// A[online, B:off] to B[online, A:off]: {pres A on}
 			// B[online, A:on] to A[online, B:off]: {pres B on}
 			// A[online, B:on] to B[online, A:on]: {pres A on} <<-- unnecessary, that's why wantReply is needed
-			doReply = (doReply && (psd.online != online))
+			doReply = (doReply && ((psd.online != online) || unknown))
 			psd.online = online
 			t.perSubs[fromUserId] = psd
 
-			log.Printf("Topic[%s]: set user %s online to %v", t.name, fromUserId, online)
+			// log.Printf("presProcReq: topic[%s]: set user %s online to %v", t.name, fromUserId, online)
 
 		} else {
-			doReply = false
-			//log.Printf("Pres 1.a.iv, 1.a.v: topic[%s]: request from untracked topic %s", t.name, fromTopic)
+			// doReply is unchanged
+
+			// Got request from a new topic. This must be a new subscription. Record it.
+			t.perSubs[fromUserId] = perSubsData{online: online, with: types.ParseUserId(fromUserId)}
+
+			// log.Printf("presProcReq: topic[%s]: request from previously untracked topic %s", t.name, fromUserId)
 		}
 	}
 
-	if online && doReply {
+	if (online || unknown) && doReply {
 		globals.hub.route <- &ServerComMessage{
 			// Topic is 'me' even for group topics; group topics will use 'me' as a signal to drop the message
 			// without forwarding to sessions
-			Pres:   &MsgServerPres{Topic: "me", What: "on", Src: t.name},
+			Pres:   &MsgServerPres{Topic: "me", What: "on", Src: t.name, wantReply: unknown},
 			rcptto: fromUserId}
+
+		// log.Printf("presProcReq: topic[%s]: replying to %s with own status '%s', wantReply", t.name, fromUserId, "on", unknown)
 	}
 }
 
-// Generic utility methods
+// Publish user's update to his/her users of interest on their 'me' topic
+// Case A: user came online, "on", ua
+// Case B: user went offline, "off", ua
+// Case C: user agent change, "ua", ua
+// Case D: User updated 'public', "upd"
+func (t *Topic) presUsersOfInterest(what string, ua string) {
+	// Push update to subscriptions
+	for topic, _ := range t.perSubs {
+		globals.hub.route <- &ServerComMessage{
+			Pres: &MsgServerPres{
+				Topic: "me", What: what, Src: t.name, UserAgent: ua, wantReply: (what == "on")},
+			rcptto: topic}
 
-// Announce to subscribers currently online in the topic
-func (t *Topic) presAnnounceToTopic(src, what string, seq int, skip *Session) {
+		// log.Printf("Pres A, B, C, D: User'%s' to '%s' what='%s', ua='%s'", t.name, topic, what, ua)
+	}
+}
+
+// Report change to topic subscribers online, group or p2p
+//
+// Case I: User joined the topic, "on"
+// Case J: User left topic, "off"
+// Case K.2: User altered WANT (and maybe got default Given), "acs"
+// Case L.1: Admin altered GIVEN, "acs" to affected user
+// Case L.3: Admin altered GIVEN (and maybe got assigned default WANT), "acs" to admins
+// Case V.2: Messages soft deleted, "del" to one user only
+// Case W.2: Messages hard-deleted, "del"
+func (t *Topic) presSubsOnline(what, src string, params *PresParams, filter types.AccessMode, skipSid string) {
+
+	// If affected user is the same as the user making the change, clear 'who'
+	actor := params.actor
+	target := params.target
+	if actor == src {
+		actor = ""
+	}
+
+	if target == src {
+		target = ""
+	}
+
 	globals.hub.route <- &ServerComMessage{
-		Pres:   &MsgServerPres{Topic: t.x_original, What: what, Src: src, SeqId: seq},
-		rcptto: t.name, sessSkip: skip}
+		Pres: &MsgServerPres{Topic: t.x_original, What: what, Src: src,
+			Acs: params.packAcs(), AcsActor: actor, AcsTarget: target,
+			SeqId: params.seqId, SeqList: params.seqList, filter: int(filter)},
+		rcptto: t.name, skipSid: skipSid}
+
+	// log.Printf("Pres K.2, L.3, W.2: topic'%s' what='%s', who='%s', acs='w:%s/g:%s'", t.name, what,
+	// 	params.who, params.dWant, params.dGiven)
+
+}
+
+// Publish to topic subscribers's sessions currently offline in the topic, on their 'me'
+// Group and P2P.
+// Case E: topic came online, "on"
+// Case F: topic went offline, "off"
+// Case G: topic updated 'public', "upd", who
+// Case H: topic deleted, "gone"
+// Case K.3: user altered WANT, "acs" to admins
+// Case L.4: Admin altered GIVEN, "acs" to admins
+// Case T: message sent, "msg" to all with 'R'
+// Case W.1: messages hard-deleted, "del" to all with 'R'
+func (t *Topic) presSubsOffline(what string, params *PresParams, filter types.AccessMode,
+	skipSid string, offlineOnly bool) {
+
+	var skipTopic string
+	if offlineOnly {
+		skipTopic = t.name
+	}
+
+	for uid, pud := range t.perUser {
+		if !presOfflineFilter(pud.modeGiven&pud.modeWant, filter) {
+			continue
+		}
+
+		user := uid.UserId()
+		actor := params.actor
+		target := params.target
+		if actor == user {
+			actor = ""
+		}
+
+		if target == user {
+			target = ""
+		}
+
+		globals.hub.route <- &ServerComMessage{
+			Pres: &MsgServerPres{Topic: "me", What: what, Src: t.original(uid),
+				Acs: params.packAcs(), AcsActor: actor, AcsTarget: target,
+				SeqId: params.seqId, SeqList: params.seqList,
+				skipTopic: skipTopic},
+			rcptto: user, skipSid: skipSid}
+	}
+	// log.Printf("presSubsOffline: topic'%s' what='%s', who='%s'", t.name, what, params.who)
+}
+
+// Same as presSubsOffline, but the topic has not been loaded/initialized first: offline topic, offline subscribers
+func presSubsOfflineOffline(topic string, cat types.TopicCat, subs []types.Subscription, what string,
+	params *PresParams, skipSid string) {
+
+	var count = 0
+	original := topic
+	for _, sub := range subs {
+		if !presOfflineFilter(sub.ModeWant&sub.ModeGiven, types.ModeNone) {
+			continue
+		}
+
+		if cat == types.TopicCat_P2P {
+			original = types.ParseUid(subs[(count+1)%2].User).UserId()
+			count++
+		}
+
+		user := types.ParseUid(sub.User).UserId()
+		actor := params.actor
+		target := params.target
+		if actor == user {
+			actor = ""
+		}
+
+		if target == user {
+			target = ""
+		}
+
+		globals.hub.route <- &ServerComMessage{
+			Pres: &MsgServerPres{Topic: "me", What: what, Src: original,
+				Acs: params.packAcs(), AcsActor: actor, AcsTarget: target,
+				SeqId: params.seqId, SeqList: params.seqList},
+			rcptto: user, skipSid: skipSid}
+	}
 }
 
 // Announce to a single user on 'me' topic
-func (t *Topic) presAnnounceToUser(uid types.Uid, what string, seq int, list []int, skip *Session) {
-	if pud, ok := t.perUser[uid]; ok {
-		if (pud.modeGiven & pud.modeWant).IsPresencer() {
-			globals.hub.route <- &ServerComMessage{
-				Pres:   &MsgServerPres{Topic: "me", What: what, Src: t.original(uid), SeqId: seq, SeqList: list},
-				rcptto: uid.UserId(), sessSkip: skip}
+//
+// Case K.1: User altered WANT (includes new subscription, deleted subscription)
+// Case L.2: Sharer altered GIVEN (inludes invite, eviction)
+// Case U: read/recv notification
+// Case V.1: messages soft-deleted
+func (t *Topic) presSingleUserOffline(uid types.Uid, what string, params *PresParams, skipSid string, offlineOnly bool) {
+	var skipTopic string
+	if offlineOnly {
+		skipTopic = t.name
+	}
+
+	if pud, ok := t.perUser[uid]; ok && presOfflineFilter(pud.modeGiven&pud.modeWant, types.ModeNone) {
+		user := uid.UserId()
+		actor := params.actor
+		target := params.target
+		if actor == user {
+			actor = ""
 		}
-	}
-}
 
-// Announce to all/offline only subscribers on 'me' topic
-func (t *Topic) presAnnounceToSubscribers(what string, seq int, offlineOnly bool) {
-	for uid, pud := range t.perUser {
-		if (pud.modeGiven & pud.modeWant).IsPresencer() && (!offlineOnly || pud.online == 0) {
-			globals.hub.route <- &ServerComMessage{
-				Pres:   &MsgServerPres{Topic: "me", What: what, Src: t.original(uid), SeqId: seq},
-				rcptto: uid.UserId()}
+		if target == user {
+			target = ""
 		}
-	}
-}
-
-// Announce change in user subscrition status
-// Case 4.a
-func (t *Topic) presSubChange(src types.Uid, what string, skip *Session) {
-	// Announce to topic subscribers who are currently attached to topic.
-	t.presAnnounceToTopic(src.UserId(), what, 0, skip)
-
-	//log.Printf("Pres 4.a: from '%s' (src: %s) [%s]", t.name, src, what)
-}
-
-// Announce topic disappearance just to the affected user
-// Case 4.b
-func (t *Topic) presTopicGone(user types.Uid) {
-	t.presAnnounceToUser(user, "gone", 0, nil, nil)
-	log.Printf("Pres 4.b: from '%s' (src: %s) [gone]", t.name, user.UserId())
-}
-
-// Non-'me' topic activated or deactivated, announce topic presence to its subscribers
-// Case 5
-func (t *Topic) presPubTopicOnline(what string) {
-	// Announce to all topic subscribers (not just offline) on 'me'
-	t.presAnnounceToSubscribers(what, 0, false)
-}
-
-// Message sent in the topic, notify topic-offline users
-// Case 6
-func (t *Topic) presPubMessageSent(seq int) {
-	//log.Printf("Pres 6: from %s [msg=%d]", t.name, seq)
-
-	// Announce to topic-offline subscribers on 'me'
-	t.presAnnounceToSubscribers("msg", seq, true)
-}
-
-// 'Public' updated, publish announcement to topic subscribers on 'me'.
-// Cases 3, 7
-func (t *Topic) presPubChange(skip *Session) {
-	if t.cat == types.TopicCat_Me {
-		t.presPubMeChange("upd", "")
-	} else {
-		// Announce to all subscribers on 'me' topic.
-		t.presAnnounceToSubscribers("upd", 0, false)
-
-		// TODO: maybe also publish on topic itself?
-	}
-
-	//log.Printf("Pres 7: from '%s' (src: %s) [%s]", t.name, src, what)
-}
-
-// User Agent has changed
-// Case 8
-// (announce to topic subscribers on 'me', same as 5)
-func (t *Topic) presPubUAChange(ua string) {
-	// Check if the change is meaningful
-	if ua == "" || ua == t.userAgent {
-		return
-	}
-	t.userAgent = ua
-
-	// Push update to subscriptions
-	for topic, _ := range t.perSubs {
 
 		globals.hub.route <- &ServerComMessage{
-			Pres: &MsgServerPres{
-				Topic: "me", What: "ua", Src: t.name, UserAgent: ua},
-			rcptto: topic}
-
-		// log.Printf("Case 8: from '%s' to %s [%s]", t.name, topic, ua)
+			Pres: &MsgServerPres{Topic: "me", What: what,
+				Src: t.original(uid), SeqId: params.seqId, SeqList: params.seqList,
+				Acs: params.packAcs(), AcsActor: actor, AcsTarget: target, UserAgent: params.userAgent,
+				wantReply: (what == "?unkn"), skipTopic: skipTopic},
+			rcptto: user, skipSid: skipSid}
 	}
+
+	// log.Printf("Pres J.1, K, M.1, N: topic'%s' what='%s', who='%s'", t.name, what, who.UserId())
 }
 
-// Let other sessions of a given user know that what messages are now received/read
-// Cases 9.a, 9.b
-func (t *Topic) presPubMessageCount(skip *Session, list []int, clear, recv, read int) {
+// Same as above, but the topic is offline (not loaded from the DB)
+func presSingleUserOfflineOffline(uid types.Uid, original string, what string,
+	mode types.AccessMode, params *PresParams, skipSid string) {
+
+	user := uid.UserId()
+	actor := params.actor
+	target := params.target
+	if actor == user {
+		actor = ""
+	}
+
+	if target == user {
+		target = ""
+	}
+
+	globals.hub.route <- &ServerComMessage{
+		Pres: &MsgServerPres{Topic: "me", What: what,
+			Src: original, SeqId: params.seqId, SeqList: params.seqList,
+			Acs: params.packAcs(), AcsActor: actor, AcsTarget: target},
+		rcptto: uid.UserId(), skipSid: skipSid}
+}
+
+// Let other sessions of a given user know that what messages are now received/read/deleted
+// Cases U, V.1
+func (t *Topic) presPubMessageCount(uid types.Uid, list []int, clear, recv, read int, skip string) {
 	var what string
 	var seq int
 	if read > 0 {
@@ -273,6 +328,7 @@ func (t *Topic) presPubMessageCount(skip *Session, list []int, clear, recv, read
 			if list[0] > 0 {
 				what = "del"
 				seq = list[0]
+				list = nil
 			}
 		} else {
 			what = "del"
@@ -280,27 +336,17 @@ func (t *Topic) presPubMessageCount(skip *Session, list []int, clear, recv, read
 	}
 
 	if what != "" {
-		// Announce to user's other sessions on 'me' regardless of being attached to this topic.
-		t.presAnnounceToUser(skip.uid, what, seq, list, skip)
+		// Announce to user's other sessions on 'me' only if they are not attached to this topic.
+		// Attached topics will receive an {info}
+		t.presSingleUserOffline(uid, what, &PresParams{seqId: seq, seqList: list}, skip, true)
 	} else {
-		log.Printf("Case 9: topic[%s] invalid request - missing payload", t.name)
+		log.Printf("Case U, V1: topic[%s] invalid request - missing payload", t.name)
 	}
 }
 
-// Messages deleted in the topic, notify online users and topic-offline users
-// Case 10
-func (t *Topic) presPubMessageDel(sess *Session, clear int) {
-
-	// Broadcast to topic
-	t.presAnnounceToTopic(sess.uid.UserId(), "del", clear, sess)
-
-	// Broadcast to topic-offline users on 'me'
-	t.presAnnounceToSubscribers("del", clear, true)
-}
-
-// User subscribed to a new topic. Let all user's other sessions know.
-// Case 11
-func (t *Topic) presTopicSubscribed(user types.Uid, skip *Session) {
-	t.presAnnounceToUser(user, "on", 0, nil, skip)
-	log.Printf("Pres 11: from '%s' (src: %s) [subbed/on]", t.name, user.UserId())
+// Must apply filter here. When sending offline to 'me' topic, 'me' does not have access to
+// original topic's access parameters
+func presOfflineFilter(mode, filter types.AccessMode) bool {
+	return mode.IsPresencer() &&
+		(filter == types.ModeNone || mode&filter != 0)
 }

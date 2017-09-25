@@ -323,7 +323,7 @@ func (s *Session) publish(msg *ClientComMessage) {
 		Content:   msg.Pub.Content},
 		rcptto: expanded, sessFrom: s, id: msg.Pub.Id, timestamp: msg.timestamp}
 	if msg.Pub.NoEcho {
-		data.sessSkip = s
+		data.skipSid = s.sid
 	}
 
 	if sub, ok := s.subs[expanded]; ok {
@@ -728,13 +728,13 @@ func (s *Session) del(msg *ClientComMessage) {
 		return
 	}
 
-	sub, ok := s.subs[expanded]
 	what := parseMsgClientDel(msg.Del.What)
 	if what == 0 {
 		s.queueOut(ErrMalformed(msg.Del.Id, msg.Del.Topic, msg.timestamp))
 		log.Println("s.del: invalid Del action '" + msg.Del.What + "'")
 	}
 
+	sub, ok := s.subs[expanded]
 	if ok && what != constMsgDelTopic {
 		// Session is attached, deleting subscription or messages. Send to topic.
 		log.Println("s.del: sending to topic")
@@ -797,7 +797,7 @@ func (s *Session) note(msg *ClientComMessage) {
 			From:  s.uid.UserId(),
 			What:  msg.Note.What,
 			SeqId: msg.Note.SeqId,
-		}, rcptto: expanded, timestamp: msg.timestamp, sessSkip: s}
+		}, rcptto: expanded, timestamp: msg.timestamp, skipSid: s.sid}
 	} else if globals.cluster.isRemoteTopic(expanded) {
 		// The topic is handled by a remote node. Forward message to it.
 		globals.cluster.routeToTopic(msg, expanded, s)
