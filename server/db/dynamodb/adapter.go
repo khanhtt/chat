@@ -1,3 +1,5 @@
+// +build dynamodb
+
 package dynamodb
 
 import (
