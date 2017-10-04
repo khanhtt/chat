@@ -193,6 +193,7 @@ The table stores `{data}` messages
 * `SeqId` id of the message
 * `Head` message headers
 * `Content` application-defined message payload
+* `ExpireTime` unix timestamp for marking expire time of message, if it already passed then the record would be automatically deleted 
 
 ### Indexes:
 * `Primary Key`: {PartitonKey: `Topic`, RangeKey: `SeqId`} 
