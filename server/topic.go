@@ -122,14 +122,13 @@ type perUserData struct {
 	modeGiven types.AccessMode
 
 	// P2P only:
-	public interface{}
+	public    interface{}
+	topicName string
 }
 
 // perSubsData holds user's (on 'me' topic) cache of subscription data
 type perSubsData struct {
 	online bool
-	// Uid of the other user for P2P topics, otherwise 0
-	with types.Uid
 }
 
 // Session wants to leave the topic
@@ -144,11 +143,19 @@ type sessionLeave struct {
 	reqId string
 }
 
+const (
+	StopNone = iota
+	StopShutdown
+	StopDeleted
+	StopRehashing
+)
+
+// Topic shutdown
 type shutDown struct {
 	// Channel to report back completion of topic shutdown. Could be nil
 	done chan<- bool
 	// Topic is being deleted as opposite to total system shutdown
-	del bool
+	reason int
 }
 
 type pushReceipt struct {
@@ -453,7 +460,7 @@ func (t *Topic) run(hub *Hub) {
 			}
 
 		case meta := <-t.meta:
-			log.Printf("topic[%s]: got meta message '%#+v' %x", t.name, meta, meta.what)
+			// log.Printf("topic[%s]: got meta message '%#+v' %x", t.name, meta, meta.what)
 
 			// Request to get/set topic metadata
 			if meta.pkt.Get != nil {
@@ -512,13 +519,21 @@ func (t *Topic) run(hub *Hub) {
 			return
 
 		case sd := <-t.exit:
-			// Handle two cases: topic is being deleted (del==true) or system shutdown (del==false, done!=nil).
+			// Handle four cases:
+			// 1. Topic is shutting down by timer due to inactivity (reason == StopNone)
+			// 2. Topic is being deleted (reason == StopDeleted)
+			// 3. System shutdown (reason == StopShutdown, done != nil).
+			// 4. Cluster rehashing (reason == StopRehashing)
 			// FIXME(gene): save lastMessage value;
 
-			if t.cat == types.TopicCat_Grp && sd.del {
+			if t.cat == types.TopicCat_Grp && sd.reason == StopDeleted {
 				t.presSubsOffline("gone", nilPresParams, 0, "", false)
+				// Not publishing online/offline to deleted P2P topics
+			} else if sd.reason == StopRehashing {
+				// Must send individual messages to sessions because normal sending through the topic's
+				// broadcast channel won't work - it will be shut down too soon.
+				t.presSubsOnlineDirect("term")
 			}
-			// Not publishing online/offline to deleted P2P topics
 
 			// In case of a system shutdown don't bother with notifications. They won't be delivered anyway.
 
@@ -687,6 +702,8 @@ func (t *Topic) requestSub(h *Hub, sess *Session, pktId string, want string,
 	oldWant := types.ModeNone
 	oldGiven := types.ModeNone
 
+	log.Println("requestSub", t.name, "'", want, "'")
+
 	// Parse access mode requested by the user
 	modeWant := types.ModeUnset
 	if want != "" {
@@ -701,23 +718,14 @@ func (t *Topic) requestSub(h *Hub, sess *Session, pktId string, want string,
 	// It could be an actual subscription (IsJoiner() == true) or a ban (IsJoiner() == false)
 	userData, existingSub := t.perUser[sess.uid]
 	if !existingSub {
-		if modeWant == types.ModeUnset {
-			// User wants default access mode.
-			userData.modeWant = t.accessFor(sess.authLvl)
-		} else {
-			userData.modeWant = modeWant
-		}
 
 		userData.private = private
 
 		if t.cat == types.TopicCat_P2P {
 			// If it's a re-subscription to a p2p topic, set public and permissions
 
-			// Make sure the user is not asking for unreasonable permissions
-			userData.modeWant = (userData.modeWant & types.ModeCP2P) | types.ModeApprove
-
 			// t.perUser contains just one element - the other user
-			for uid2, _ := range t.perUser {
+			for uid2, user2Data := range t.perUser {
 				if user2, err := store.Users.Get(uid2); err != nil {
 					log.Println(err.Error())
 					sess.queueOut(ErrUnknown(pktId, t.original(sess.uid), now))
@@ -727,14 +735,31 @@ func (t *Topic) requestSub(h *Hub, sess *Session, pktId string, want string,
 					return errors.New("user not found")
 				} else {
 					userData.public = user2.Public
+					userData.topicName = uid2.UserId()
 					userData.modeGiven = selectAccessMode(sess.authLvl,
 						user2.Access.Anon, user2.Access.Auth, types.ModeCP2P)
+					if modeWant == types.ModeUnset {
+						// By default give user1 the same thing user1 gave to user2.
+						userData.modeWant = user2Data.modeGiven
+					} else {
+						userData.modeWant = modeWant
+					}
 				}
 				break
 			}
+
+			// Make sure the user is not asking for unreasonable permissions
+			userData.modeWant = (userData.modeWant & types.ModeCP2P) | types.ModeApprove
 		} else {
 			// For non-p2p2 topics access is given as default access
 			userData.modeGiven = t.accessFor(sess.authLvl)
+
+			if modeWant == types.ModeUnset {
+				// User wants default access mode.
+				userData.modeWant = t.accessFor(sess.authLvl)
+			} else {
+				userData.modeWant = modeWant
+			}
 		}
 
 		// Add subscription to database
@@ -993,7 +1018,6 @@ func (t *Topic) approveSub(h *Hub, sess *Session, target types.Uid, set *MsgClie
 			modeWant:  sub.ModeWant,
 			private:   nil,
 		}
-
 		t.perUser[target] = userData
 
 	} else {
@@ -1721,13 +1745,18 @@ func (t *Topic) replyDelSub(h *Hub, sess *Session, del *MsgClientDel) error {
 
 	var err error
 
+	// Get ID of the affected user
 	uid := types.ParseUserId(del.User)
 
 	pud := t.perUser[sess.uid]
 	if !(pud.modeGiven & pud.modeWant).IsAdmin() {
 		err = errors.New("del.sub: permission denied")
 	} else if uid.IsZero() || uid == sess.uid {
+		// Cannot delete self-subscription. User [leave unsub] or [delete topic]
 		err = errors.New("del.sub: cannot delete self-subscription")
+	} else if t.cat == types.TopicCat_P2P {
+		// Don't try to delete the other P2P user
+		err = errors.New("del.sub: cannot apply to a P2P topic")
 	}
 
 	if err != nil {
@@ -1745,7 +1774,7 @@ func (t *Topic) replyDelSub(h *Hub, sess *Session, del *MsgClientDel) error {
 	if (pud.modeGiven & pud.modeWant).IsOwner() {
 		err = errors.New("del.sub: cannot evict topic owner")
 	} else if !pud.modeWant.IsJoiner() {
-		// If the user banned the topic, subscription should not be deleted. Otherwise user may be re-invited
+		// If the user has banned the topic, subscription should not be deleted. Otherwise user may be re-invited
 		// which defeats the purpose of banning.
 		err = errors.New("del.sub: cannot delete banned subscription")
 	}
@@ -1762,9 +1791,9 @@ func (t *Topic) replyDelSub(h *Hub, sess *Session, del *MsgClientDel) error {
 		return err
 	}
 
-	t.evictUser(uid, true, "")
-
 	sess.queueOut(NoErr(del.Id, t.original(sess.uid), now))
+
+	t.evictUser(uid, true, "")
 
 	return nil
 }
@@ -1788,12 +1817,12 @@ func (t *Topic) replyLeaveUnsub(h *Hub, sess *Session, id string) error {
 		return err
 	}
 
-	// Evict all user's sessions and clear cached data
-	t.evictUser(sess.uid, true, sess.sid)
-
 	if id != "" {
 		sess.queueOut(NoErr(id, t.original(sess.uid), now))
 	}
+
+	// Evict all user's sessions and clear cached data
+	t.evictUser(sess.uid, true, sess.sid)
 
 	return nil
 }
@@ -1822,10 +1851,14 @@ func (t *Topic) evictUser(uid types.Uid, unsub bool, skip string) {
 			t.presSubsOnline("off", uid.UserId(), nilPresParams, types.ModeRead, skip)
 		}
 	} else if t.cat == types.TopicCat_P2P && unsub {
+		// Notify user's own sessions.
 		t.presSingleUserOffline(uid, "gone", nilPresParams, "", false)
-	} else {
-		log.Println("del: not announcing", t.cat, unsub)
+		// TODO: send notification to user1's 'me' to remove user2 from perSubs and
+		// send an "off" notification to user2
 	}
+
+	// Save topic name. It won't be available later
+	original := t.original(uid)
 
 	// Second - detach user from topic
 	if unsub {
@@ -1843,7 +1876,7 @@ func (t *Topic) evictUser(uid types.Uid, unsub bool, skip string) {
 			delete(t.sessions, sess)
 			sess.detach <- t.name
 			if sess.sid != skip {
-				sess.queueOut(NoErrEvicted("", t.original(sess.uid), now))
+				sess.queueOut(NoErrEvicted("", original, now))
 			}
 		}
 	}
@@ -1900,15 +1933,15 @@ func (t *Topic) isSuspended() bool {
 
 // Get topic name suitable for the given client
 func (t *Topic) original(uid types.Uid) string {
-	if t.cat == types.TopicCat_P2P {
-		for u2, _ := range t.perUser {
-			if u2.Compare(uid) != 0 {
-				return u2.UserId()
-			}
-		}
-		log.Fatal("Invalid P2P topic")
+	if t.cat != types.TopicCat_P2P {
+		return t.x_original
 	}
-	return t.x_original
+
+	if pud, ok := t.perUser[uid]; ok {
+		return pud.topicName
+	}
+
+	panic("Invalid P2P topic")
 }
 
 // Get topic name suitable for the given client

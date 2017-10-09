@@ -60,19 +60,22 @@ type Hub struct {
 	// Topics must be indexed by appid!name
 	topics map[string]*Topic
 
-	// Channel for routing messages between topics, buffered at 2048
+	// Channel for routing messages between topics, buffered at 4096
 	route chan *ServerComMessage
 
-	// subscribe session to topic, possibly creating a new topic
+	// subscribe session to topic, possibly creating a new topic, unbuffered
 	join chan *sessionJoin
 
-	// Remove topic from hub, possibly deleting it afterwards
+	// Remove topic from hub, possibly deleting it afterwards, unbuffered
 	unreg chan *topicUnreg
 
-	// process get.info requests for topic not subscribed to
+	// Cluster request to rehash topics, unbuffered
+	rehash chan bool
+
+	// process get.info requests for topic not subscribed to, buffered 128
 	meta chan *metaReq
 
-	// Request to shutdown
+	// Request to shutdown, unbuffered
 	shutdown chan chan<- bool
 
 	// Exported counter of live topics
@@ -95,10 +98,11 @@ func newHub() *Hub {
 	var h = &Hub{
 		topics: make(map[string]*Topic),
 		// this needs to be buffered - hub generates invites and adds them to this queue
-		route:      make(chan *ServerComMessage, 2048),
+		route:      make(chan *ServerComMessage, 4096),
 		join:       make(chan *sessionJoin),
 		unreg:      make(chan *topicUnreg),
-		meta:       make(chan *metaReq, 32),
+		rehash:     make(chan bool),
+		meta:       make(chan *metaReq, 128),
 		shutdown:   make(chan chan<- bool),
 		topicsLive: new(expvar.Int)}
 
@@ -185,7 +189,18 @@ func (h *Hub) run() {
 
 		case unreg := <-h.unreg:
 			// The topic is being garbage collected or deleted.
-			h.topicUnreg(unreg.sess, unreg.topic, unreg.msg, unreg.del)
+			reason := StopNone
+			if unreg.del {
+				reason = StopDeleted
+			}
+			h.topicUnreg(unreg.sess, unreg.topic, unreg.msg, reason)
+
+		case <-h.rehash:
+			for _, topic := range h.topics {
+				if globals.cluster.isRemoteTopic(topic.name) {
+					h.topicUnreg(nil, topic.name, nil, StopRehashing)
+				}
+			}
 
 		case hubdone := <-h.shutdown:
 			topicsdone := make(chan bool)
@@ -381,9 +396,10 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 				uid := types.ParseUid(subs[i].User)
 				t.perUser[uid] = perUserData{
 					// Adapter already swapped the public values
-					public:  subs[i].GetPublic(),
-					private: subs[i].Private,
-					// lastSeenTag: subs[i].LastSeen,
+					public:    subs[i].GetPublic(),
+					topicName: types.ParseUid(subs[(i+1)%2].User).UserId(),
+
+					private:   subs[i].Private,
 					modeWant:  subs[i].ModeWant,
 					modeGiven: subs[i].ModeGiven,
 					clearId:   subs[i].ClearId}
@@ -392,9 +408,6 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 		} else {
 			// Cases 1 (new topic), 2 (one of the two subscriptions is missing: either it's a new request
 			// or the subscription was deleted)
-
-			log.Println("hub: creating new p2p topic")
-
 			var userData perUserData
 
 			// Fetching records for both users.
@@ -403,6 +416,9 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 			// The other user.
 			userId2 := types.ParseUserId(t.x_original)
 			// User index: u1 - requester, u2 - the other user
+
+			log.Println("hub: creating new p2p topic", userId1.String(), userId2.String())
+
 			var u1, u2 int
 			users, err := store.Users.GetAll(userId1, userId2)
 			if err != nil {
@@ -428,9 +444,7 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 			// Set to true if only requester's subscription has to be created.
 			var user1only bool
 			if len(subs) == 1 {
-				log.Println("hub: one subscription already exists")
-
-				if subs[0].Uid() == userId1 {
+				if subs[0].User == userId1.String() {
 					// User2's subscription is missing, user1's exists
 					sub1 = &subs[0]
 				} else {
@@ -438,6 +452,7 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 					sub2 = &subs[0]
 					user1only = true
 				}
+				log.Println("hub: one subscription already exists", subs[0].User, user1only)
 			}
 
 			// Other user's subscription is missing
@@ -560,6 +575,7 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 			// Publics is already swapped
 			userData.public = sub1.GetPublic()
+			userData.topicName = userId2.UserId()
 			userData.modeWant = sub1.ModeWant
 			userData.modeGiven = sub1.ModeGiven
 			userData.clearId = sub2.ClearId
@@ -567,6 +583,7 @@ func topicInit(sreg *sessionJoin, h *Hub) {
 
 			t.perUser[userId2] = perUserData{
 				public:    sub2.GetPublic(),
+				topicName: userId1.UserId(),
 				modeWant:  sub2.ModeWant,
 				modeGiven: sub2.ModeGiven,
 				clearId:   sub2.ClearId}
@@ -801,13 +818,12 @@ func (t *Topic) loadSubscribers() error {
 // 2. Topic is just being unregistered (topic is going offline)
 // 2.1 Unregister it with no further action
 //
-func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del bool) {
+func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, reason int) {
 	now := time.Now().UTC().Round(time.Millisecond)
 
-	if del {
+	if reason == StopDeleted {
 		// Case 1 (unregister and delete)
 		if t := h.topicGet(topic); t != nil {
-			log.Println("topicUnreg -- ONline")
 			// Case 1.1: topic is online
 			if t.owner == sess.uid || (t.cat == types.TopicCat_P2P && len(t.perUser) < 2) {
 				// Case 1.1.1: requester is the owner or last sub in a p2p topic
@@ -816,7 +832,7 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 
 				if err := store.Topics.Delete(topic); err != nil {
 					t.resume()
-					log.Println("topicUnreg delete failed (1):", err)
+					log.Println("topicUnreg failed to delete online topic:", err)
 					sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
 					return
 				}
@@ -832,7 +848,7 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 				}
 
 				h.topicDel(topic)
-				t.exit <- &shutDown{del: true}
+				t.exit <- &shutDown{reason: StopDeleted}
 				h.topicsLive.Add(-1)
 			} else {
 				// Case 1.1.2: requester is NOT the owner
@@ -845,7 +861,6 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 
 		} else {
 			// Case 1.2: topic is offline.
-			log.Println("topicUnreg -- offline")
 
 			// Get all subscribers: we have to notify them all.
 			if subs, err := store.Topics.GetSubs(topic); err != nil {
@@ -873,7 +888,7 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 					if tcat == types.TopicCat_P2P && subs != nil && len(subs) < 2 {
 						// This is a P2P topic and fewer than 2 subscriptions, delete the entire topic
 						if err := store.Topics.Delete(topic); err != nil {
-							log.Println("topicUnreg delete failed (2):", err)
+							log.Println("topicUnreg failed to delete offline topic:", err)
 							sess.queueOut(ErrUnknown(msg.Id, msg.Topic, now))
 							return
 						}
@@ -920,7 +935,7 @@ func (h *Hub) topicUnreg(sess *Session, topic string, msg *MsgClientDel, del boo
 		if t := h.topicGet(topic); t != nil {
 			t.suspend()
 			h.topicDel(topic)
-			t.exit <- &shutDown{del: false}
+			t.exit <- &shutDown{reason: reason}
 			h.topicsLive.Add(-1)
 		}
 

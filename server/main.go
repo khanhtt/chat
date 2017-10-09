@@ -99,6 +99,7 @@ func main() {
 	var staticPath = flag.String("static_data", "", "Path to /static data for the server.")
 	var listenOn = flag.String("listen", "", "Override TCP address and port to listen on.")
 	var tlsEnabled = flag.Bool("tls_enabled", false, "Override config value for enabling TLS")
+	var clusterSelf = flag.String("cluster_self", "", "Override the name of the current cluster node")
 	flag.Parse()
 
 	log.Printf("Using config from: '%s'", *configfile)
@@ -121,6 +122,7 @@ func main() {
 	defer func() {
 		store.Close()
 		log.Println("Closed database connection(s)")
+		log.Println("All done, good bye")
 	}()
 
 	for name, jsconf := range config.AuthConfig {
@@ -145,7 +147,7 @@ func main() {
 	// The hub (the main message router)
 	globals.hub = newHub()
 	// Cluster initialization
-	clusterInit(config.ClusterConfig)
+	clusterInit(config.ClusterConfig, clusterSelf)
 	// API key validation secret
 	globals.apiKeySalt = config.APIKeySalt
 	// Indexable tags for user discovery
@@ -193,7 +195,6 @@ func main() {
 	if err := listenAndServe(config.Listen, *tlsEnabled, string(config.TlsConfig), signalHandler()); err != nil {
 		log.Fatal(err)
 	}
-	log.Println("All done, good bye")
 }
 
 func getApiKey(req *http.Request) string {
