@@ -137,13 +137,10 @@ func (uid Uid) P2PName(u2 Uid) string {
 		b1, _ := uid.MarshalBinary()
 		b2, _ := u2.MarshalBinary()
 
-		if uid < u2 {
+		if uid <= u2 {
 			b1 = append(b1, b2...)
 		} else if uid > u2 {
 			b1 = append(b2, b1...)
-		} else {
-			// Explicitly disable P2P with self
-			return ""
 		}
 
 		return "p2p" + base64.URLEncoding.EncodeToString(b1)[:p2p_BASE64_UNPADDED]

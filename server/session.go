@@ -837,9 +837,6 @@ func (s *Session) validateTopicName(msgId, topic string, timestamp time.Time) (s
 		if uid2.IsZero() {
 			// Ensure the user id is valid
 			return "", ErrMalformed(msgId, topic, timestamp)
-		} else if uid2 == s.uid {
-			// Use 'me' to access self-topic
-			return "", ErrPermissionDenied(msgId, topic, timestamp)
 		}
 		routeTo = s.uid.P2PName(uid2)
 	}

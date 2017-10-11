@@ -1947,12 +1947,12 @@ func (t *Topic) original(uid types.Uid) string {
 // Get topic name suitable for the given client
 func (t *Topic) p2pOtherUser(uid types.Uid) types.Uid {
 	if t.cat == types.TopicCat_P2P {
-		for u2, _ := range t.perUser {
+		for u2 := range t.perUser {
 			if u2.Compare(uid) != 0 {
 				return u2
 			}
 		}
-		panic("Invalid P2P topic")
+		return uid
 	}
 	panic("Not P2P topic")
 }
