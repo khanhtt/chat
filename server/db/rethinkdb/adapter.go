@@ -780,10 +780,6 @@ func (a *RethinkDbAdapter) FindSubs(uid t.Uid, query []interface{}) ([]t.Subscri
 		var sub t.Subscription
 		var subs []t.Subscription
 		for rows.Next(&user) {
-			if user.Id == uid.String() {
-				// Skip the callee
-				continue
-			}
 			sub.CreatedAt = user.CreatedAt
 			sub.UpdatedAt = user.UpdatedAt
 			sub.User = user.Id
