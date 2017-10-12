@@ -1170,6 +1170,10 @@ func (a *DynamoDBAdapter) FindSubs(uid t.Uid, query []interface{}) ([]t.Subscrip
 	}
 	var subs []t.Subscription
 	for _, user := range users {
+		if user.Id == uid.String() {
+			// Skip the callee
+			continue
+		}
 		var sub t.Subscription
 		sub.CreatedAt = user.CreatedAt
 		sub.UpdatedAt = user.UpdatedAt

@@ -1952,7 +1952,7 @@ func (t *Topic) p2pOtherUser(uid types.Uid) types.Uid {
 				return u2
 			}
 		}
-		return uid
+		panic("Invalid P2P topic")
 	}
 	panic("Not P2P topic")
 }
