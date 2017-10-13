@@ -16,6 +16,7 @@ type configType struct {
 
 func main() {
 	configFile := flag.String("config", "./config.json", "database configuration")
+	reset := flag.Bool("reset", false, "delete existing tables?")
 	flag.Parse()
 
 	var config configType
@@ -32,7 +33,7 @@ func main() {
 	}
 	defer store.Close()
 
-	err = store.InitDb(false)
+	err = store.InitDb(*reset)
 	if err != nil {
 		log.Fatal(err)
 	}

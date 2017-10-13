@@ -186,8 +186,100 @@ func (a *DynamoDBAdapter) IsOpen() bool {
 
 func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 
-	var input *dynamodb.CreateTableInput
 	var err error
+
+	if reset {
+		// delete users table
+		_, err = a.svc.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(USERS_TABLE),
+		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); (ok && aerr.Code() != dynamodb.ErrCodeResourceNotFoundException) || !ok {
+				log.Println(err)
+				return err
+			}
+		}
+
+		// delete auth table
+		_, err = a.svc.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(AUTH_TABLE),
+		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); (ok && aerr.Code() != dynamodb.ErrCodeResourceNotFoundException) || !ok {
+				log.Println(err)
+				return err
+			}
+		}
+
+		// delete tagunique table
+		_, err = a.svc.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(TAGUNIQUE_TABLE),
+		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); (ok && aerr.Code() != dynamodb.ErrCodeResourceNotFoundException) || !ok {
+				log.Println(err)
+				return err
+			}
+		}
+
+		// delete topics table
+		_, err = a.svc.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(TOPICS_TABLE),
+		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); (ok && aerr.Code() != dynamodb.ErrCodeResourceNotFoundException) || !ok {
+				log.Println(err)
+				return err
+			}
+		}
+
+		// delete subscriptions table
+		_, err = a.svc.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(SUBSCRIPTIONS_TABLE),
+		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); (ok && aerr.Code() != dynamodb.ErrCodeResourceNotFoundException) || !ok {
+				log.Println(err)
+				return err
+			}
+		}
+
+		// delete messages table
+		_, err = a.svc.DeleteTable(&dynamodb.DeleteTableInput{
+			TableName: aws.String(MESSAGES_TABLE),
+		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); (ok && aerr.Code() != dynamodb.ErrCodeResourceNotFoundException) || !ok {
+				log.Println(err)
+				return err
+			}
+		}
+
+		// wait until all tables deleted
+		a.svc.WaitUntilTableNotExists(&dynamodb.DescribeTableInput{
+			TableName: aws.String(USERS_TABLE),
+		})
+		a.svc.WaitUntilTableNotExists(&dynamodb.DescribeTableInput{
+			TableName: aws.String(AUTH_TABLE),
+		})
+		a.svc.WaitUntilTableNotExists(&dynamodb.DescribeTableInput{
+			TableName: aws.String(TAGUNIQUE_TABLE),
+		})
+		a.svc.WaitUntilTableNotExists(&dynamodb.DescribeTableInput{
+			TableName: aws.String(TOPICS_TABLE),
+		})
+		a.svc.WaitUntilTableNotExists(&dynamodb.DescribeTableInput{
+			TableName: aws.String(SUBSCRIPTIONS_TABLE),
+		})
+		a.svc.WaitUntilTableNotExists(&dynamodb.DescribeTableInput{
+			TableName: aws.String(MESSAGES_TABLE),
+		})
+	}
+
+	var input *dynamodb.CreateTableInput
+
+	// create table with no secondary indexes
+	log.Printf("Creating table with no secondary indexes: %v, %v, %v", USERS_TABLE, TOPICS_TABLE, MESSAGES_TABLE)
 
 	// create users table
 	input = &dynamodb.CreateTableInput{
@@ -216,7 +308,101 @@ func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 			return err
 		}
 	}
+
+	// create topics table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Id"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Id"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Topics.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Topics.ProvisionedThroughput.WriteCapacity),
+		},
+		TableName: aws.String(TOPICS_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+
+	// create messages table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Topic"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("SeqId"),
+				AttributeType: aws.String("N"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Topic"),
+				KeyType:       aws.String("HASH"),
+			},
+			{
+				AttributeName: aws.String("SeqId"),
+				KeyType:       aws.String("RANGE"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Messages.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Messages.ProvisionedThroughput.WriteCapacity),
+		},
+		TableName: aws.String(MESSAGES_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+
+	// wait for users, topics, & messages tables created
+	a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(USERS_TABLE),
+	})
 	log.Printf("%v table created", USERS_TABLE)
+	a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(TOPICS_TABLE),
+	})
+	log.Printf("%v table created", TOPICS_TABLE)
+	a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(MESSAGES_TABLE),
+	})
+	log.Printf("%v table created", MESSAGES_TABLE)
+
+	// set TTL field to messages table
+	_, err = a.svc.UpdateTimeToLive(&dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(MESSAGES_TABLE),
+		TimeToLiveSpecification: &dynamodb.TimeToLiveSpecification{
+			AttributeName: aws.String("ExpireTime"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	if err != nil && !strings.Contains(err.Error(), "TimeToLive is already enabled") {
+		log.Println(err)
+		return err
+	}
+	log.Printf("%v ttl field set to active", MESSAGES_TABLE)
+
+	// create table with secondary indexes
+	log.Printf("Creating tables with secondary indexes: %v, %v, %v", AUTH_TABLE, TAGUNIQUE_TABLE, SUBSCRIPTIONS_TABLE)
 
 	// create auth table
 	input = &dynamodb.CreateTableInput{
@@ -267,6 +453,9 @@ func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 			return err
 		}
 	}
+	a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(AUTH_TABLE),
+	})
 	log.Printf("%v table created", AUTH_TABLE)
 
 	// create tagunique table
@@ -318,36 +507,10 @@ func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 			return err
 		}
 	}
+	a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(TAGUNIQUE_TABLE),
+	})
 	log.Printf("%v table created", TAGUNIQUE_TABLE)
-
-	// create topics table
-	input = &dynamodb.CreateTableInput{
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String("Id"),
-				AttributeType: aws.String("S"),
-			},
-		},
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String("Id"),
-				KeyType:       aws.String("HASH"),
-			},
-		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Topics.ProvisionedThroughput.ReadCapacity),
-			WriteCapacityUnits: aws.Int64(settings.TableConfig.Topics.ProvisionedThroughput.WriteCapacity),
-		},
-		TableName: aws.String(TOPICS_TABLE),
-	}
-	_, err = a.svc.CreateTable(input)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
-			log.Println(err)
-			return err
-		}
-	}
-	log.Printf("%v table created", TOPICS_TABLE)
 
 	// create subscriptions table
 	input = &dynamodb.CreateTableInput{
@@ -426,67 +589,10 @@ func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 			return err
 		}
 	}
+	a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(SUBSCRIPTIONS_TABLE),
+	})
 	log.Printf("%v table created", SUBSCRIPTIONS_TABLE)
-
-	// create messages table
-	input = &dynamodb.CreateTableInput{
-		AttributeDefinitions: []*dynamodb.AttributeDefinition{
-			{
-				AttributeName: aws.String("Topic"),
-				AttributeType: aws.String("S"),
-			},
-			{
-				AttributeName: aws.String("SeqId"),
-				AttributeType: aws.String("S"),
-			},
-		},
-		KeySchema: []*dynamodb.KeySchemaElement{
-			{
-				AttributeName: aws.String("Topic"),
-				KeyType:       aws.String("HASH"),
-			},
-			{
-				AttributeName: aws.String("SeqId"),
-				KeyType:       aws.String("RANGE"),
-			},
-		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Messages.ProvisionedThroughput.ReadCapacity),
-			WriteCapacityUnits: aws.Int64(settings.TableConfig.Messages.ProvisionedThroughput.WriteCapacity),
-		},
-		TableName: aws.String(MESSAGES_TABLE),
-	}
-	_, err = a.svc.CreateTable(input)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
-			log.Println(err)
-			return err
-		}
-	}
-	log.Printf("%v table created", MESSAGES_TABLE)
-
-	// wait until messages table become avalable
-	err = a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
-		TableName: aws.String(MESSAGES_TABLE),
-	})
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-
-	// set TTL field to messages table
-	_, err = a.svc.UpdateTimeToLive(&dynamodb.UpdateTimeToLiveInput{
-		TableName: aws.String(MESSAGES_TABLE),
-		TimeToLiveSpecification: &dynamodb.TimeToLiveSpecification{
-			AttributeName: aws.String("ExpireTime"),
-			Enabled:       aws.Bool(true),
-		},
-	})
-	if err != nil && !strings.Contains(err.Error(), "TimeToLive is already enabled") {
-		log.Println(err)
-		return err
-	}
-	log.Printf("%v ttl field set to active", MESSAGES_TABLE)
 
 	// install self-talk service account
 	user := &t.User{
