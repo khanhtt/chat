@@ -51,7 +51,7 @@ type MessageKey struct {
 	SeqId int
 }
 
-const (
+var (
 	USERS_TABLE            string = "TinodeUsers"
 	AUTH_TABLE             string = "TinodeAuth"
 	TAGUNIQUE_TABLE        string = "TinodeTagUnique"
@@ -65,6 +65,8 @@ const (
 	EXPIRE_DURATION_MESSAGE_GROUP int = 604800   // 1 week
 	EXPIRE_DURATION_MESSAGE_ME    int = 2592000  // 1 month
 	EXPIRE_DURATION_MESSAGE_P2P   int = 31536000 // 1 year
+
+	SELF_TALK_SERVICE_USER_ID t.Uid = 5
 )
 
 type ErrorLogger struct {
@@ -74,6 +76,48 @@ type ErrorLogger struct {
 func (e *ErrorLogger) LogError(err error) {
 	log.Printf("[%v] %v\n", e.Tag, err)
 }
+
+type Settings struct {
+	Region            string      `json:"region"`
+	Endpoint          string      `json:"endpoint"`
+	Profile           string      `json:"profile"`
+	SelfChatServiceId uint64      `json:"self_chat_service_id"`
+	TableConfig       TableConfig `json:"table_config"`
+	IndexConfig       IndexConfig `json:"index_config"`
+}
+
+type ProvisionedThroughputSettings struct {
+	ReadCapacity  int64 `json:"read_capacity"`
+	WriteCapacity int64 `json:"write_capacity"`
+}
+
+type TableDetailSettings struct {
+	Name                  string                        `json:"name"`
+	ProvisionedThroughput ProvisionedThroughputSettings `json:"provisioned_throughput"`
+}
+
+type TableConfig struct {
+	Users         TableDetailSettings `json:"users"`
+	Auth          TableDetailSettings `json:"auth"`
+	TagUnique     TableDetailSettings `json:"tagunique"`
+	Topics        TableDetailSettings `json:"topics"`
+	Subscriptions TableDetailSettings `json:"subscriptions"`
+	Messages      TableDetailSettings `json:"messages"`
+}
+
+type IndexDetailSettings struct {
+	ProvisionedThroughput ProvisionedThroughputSettings `json:"provisioned_throughput"`
+}
+
+type IndexConfig struct {
+	UserID        IndexDetailSettings `json:"userid"`
+	Source        IndexDetailSettings
+	UserUpdatedAt IndexDetailSettings
+	Topic         IndexDetailSettings
+}
+
+// represent all settings from config file
+var settings Settings
 
 // function to get ean, eav, & ue from arbitrary update item input
 func parseEanEavUeUpdateItem(update map[string]interface{}) (map[string]*string, map[string]*dynamodb.AttributeValue, *string, error) {
@@ -101,15 +145,21 @@ func (a *DynamoDBAdapter) Open(jsonstring string) error {
 		return errors.New("adapter dynamodb is already connected")
 	}
 
-	type Settings struct {
-		Region   string `json:"region"`
-		Endpoint string `json:"endpoint"`
-		Profile  string `json:"profile"`
-	}
-	var settings Settings
+	// parse settings from config file
 	if err := json.Unmarshal([]byte(jsonstring), &settings); err != nil {
 		return err
 	}
+
+	// initialize commonly used variables
+	USERS_TABLE = settings.TableConfig.Users.Name
+	AUTH_TABLE = settings.TableConfig.Auth.Name
+	TAGUNIQUE_TABLE = settings.TableConfig.TagUnique.Name
+	TOPICS_TABLE = settings.TableConfig.Topics.Name
+	SUBSCRIPTIONS_TABLE = settings.TableConfig.Subscriptions.Name
+	MESSAGES_TABLE = settings.TableConfig.Messages.Name
+	SELF_TALK_SERVICE_USER_ID = t.Uid(settings.SelfChatServiceId)
+
+	// initialize dynamodb connection
 	sess, err := session.NewSessionWithOptions(session.Options{
 		Config: aws.Config{
 			Region:   aws.String(settings.Region),
@@ -135,7 +185,335 @@ func (a *DynamoDBAdapter) IsOpen() bool {
 }
 
 func (a *DynamoDBAdapter) CreateDb(reset bool) error {
-	return errors.New("CreateDb: not implemented")
+
+	var input *dynamodb.CreateTableInput
+	var err error
+
+	// create users table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Id"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Id"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Users.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Users.ProvisionedThroughput.WriteCapacity),
+		},
+		TableName: aws.String(USERS_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+	log.Printf("%v table created", USERS_TABLE)
+
+	// create auth table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("unique"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("userid"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("unique"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Auth.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Auth.ProvisionedThroughput.WriteCapacity),
+		},
+		GlobalSecondaryIndexes: []*dynamodb.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String("userid"),
+				KeySchema: []*dynamodb.KeySchemaElement{
+					{
+						AttributeName: aws.String("userid"),
+						KeyType:       aws.String("HASH"),
+					},
+				},
+				Projection: &dynamodb.Projection{
+					ProjectionType: aws.String("ALL"),
+				},
+				ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(settings.IndexConfig.UserID.ProvisionedThroughput.ReadCapacity),
+					WriteCapacityUnits: aws.Int64(settings.IndexConfig.UserID.ProvisionedThroughput.WriteCapacity),
+				},
+			},
+		},
+		TableName: aws.String(AUTH_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+	log.Printf("%v table created", AUTH_TABLE)
+
+	// create tagunique table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Id"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("Source"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Id"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.TagUnique.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.TagUnique.ProvisionedThroughput.WriteCapacity),
+		},
+		GlobalSecondaryIndexes: []*dynamodb.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String("Source"),
+				KeySchema: []*dynamodb.KeySchemaElement{
+					{
+						AttributeName: aws.String("Source"),
+						KeyType:       aws.String("HASH"),
+					},
+				},
+				Projection: &dynamodb.Projection{
+					ProjectionType: aws.String("ALL"),
+				},
+				ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(settings.IndexConfig.Source.ProvisionedThroughput.ReadCapacity),
+					WriteCapacityUnits: aws.Int64(settings.IndexConfig.Source.ProvisionedThroughput.WriteCapacity),
+				},
+			},
+		},
+		TableName: aws.String(TAGUNIQUE_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+	log.Printf("%v table created", TAGUNIQUE_TABLE)
+
+	// create topics table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Id"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Id"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Topics.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Topics.ProvisionedThroughput.WriteCapacity),
+		},
+		TableName: aws.String(TOPICS_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+	log.Printf("%v table created", TOPICS_TABLE)
+
+	// create subscriptions table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Id"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("User"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("UpdatedAt"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("Topic"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Id"),
+				KeyType:       aws.String("HASH"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Subscriptions.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Subscriptions.ProvisionedThroughput.WriteCapacity),
+		},
+		GlobalSecondaryIndexes: []*dynamodb.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String("UserUpdatedAt"),
+				KeySchema: []*dynamodb.KeySchemaElement{
+					{
+						AttributeName: aws.String("User"),
+						KeyType:       aws.String("HASH"),
+					},
+					{
+						AttributeName: aws.String("UpdatedAt"),
+						KeyType:       aws.String("RANGE"),
+					},
+				},
+				Projection: &dynamodb.Projection{
+					ProjectionType: aws.String("ALL"),
+				},
+				ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(settings.IndexConfig.UserUpdatedAt.ProvisionedThroughput.ReadCapacity),
+					WriteCapacityUnits: aws.Int64(settings.IndexConfig.UserUpdatedAt.ProvisionedThroughput.WriteCapacity),
+				},
+			},
+			{
+				IndexName: aws.String("Topic"),
+				KeySchema: []*dynamodb.KeySchemaElement{
+					{
+						AttributeName: aws.String("Topic"),
+						KeyType:       aws.String("HASH"),
+					},
+				},
+				Projection: &dynamodb.Projection{
+					ProjectionType: aws.String("ALL"),
+				},
+				ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(settings.IndexConfig.Topic.ProvisionedThroughput.ReadCapacity),
+					WriteCapacityUnits: aws.Int64(settings.IndexConfig.Topic.ProvisionedThroughput.WriteCapacity),
+				},
+			},
+		},
+		TableName: aws.String(SUBSCRIPTIONS_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+	log.Printf("%v table created", SUBSCRIPTIONS_TABLE)
+
+	// create messages table
+	input = &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String("Topic"),
+				AttributeType: aws.String("S"),
+			},
+			{
+				AttributeName: aws.String("SeqId"),
+				AttributeType: aws.String("S"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String("Topic"),
+				KeyType:       aws.String("HASH"),
+			},
+			{
+				AttributeName: aws.String("SeqId"),
+				KeyType:       aws.String("RANGE"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(settings.TableConfig.Messages.ProvisionedThroughput.ReadCapacity),
+			WriteCapacityUnits: aws.Int64(settings.TableConfig.Messages.ProvisionedThroughput.WriteCapacity),
+		},
+		TableName: aws.String(MESSAGES_TABLE),
+	}
+	_, err = a.svc.CreateTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok && aerr.Code() != dynamodb.ErrCodeResourceInUseException {
+			log.Println(err)
+			return err
+		}
+	}
+	log.Printf("%v table created", MESSAGES_TABLE)
+
+	// wait until messages table become avalable
+	err = a.svc.WaitUntilTableExists(&dynamodb.DescribeTableInput{
+		TableName: aws.String(MESSAGES_TABLE),
+	})
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	// set TTL field to messages table
+	_, err = a.svc.UpdateTimeToLive(&dynamodb.UpdateTimeToLiveInput{
+		TableName: aws.String(MESSAGES_TABLE),
+		TimeToLiveSpecification: &dynamodb.TimeToLiveSpecification{
+			AttributeName: aws.String("ExpireTime"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	if err != nil && !strings.Contains(err.Error(), "TimeToLive is already enabled") {
+		log.Println(err)
+		return err
+	}
+	log.Printf("%v ttl field set to active", MESSAGES_TABLE)
+
+	// install self-talk service account
+	user := &t.User{
+		Access: t.DefaultAccess{
+			Auth: t.ModeCP2P,
+			Anon: t.ModeNone,
+		},
+		Public: map[string]string{
+			"fn": "SelfTalkService",
+		},
+	}
+	user.SetUid(SELF_TALK_SERVICE_USER_ID)
+	item, err := dynamodbattribute.MarshalMap(user)
+	if err != nil {
+		return err
+	}
+	_, err = a.svc.PutItem(&dynamodb.PutItemInput{
+		Item:      item,
+		TableName: aws.String(USERS_TABLE),
+	})
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	log.Println("Successfully install self-talk service account")
+
+	return nil
 }
 
 func (a *DynamoDBAdapter) UserCreate(user *t.User) (error, bool) {

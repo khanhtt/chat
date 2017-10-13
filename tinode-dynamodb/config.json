@@ -1,0 +1,83 @@
+{
+    "store_config": {
+		"worker_id": 1,
+		"uid_key": "la6YsO+bNX/+XIkOqc5Svw==",
+		"adapter": "dynamodb",
+		"adapter_config": {
+			"region": "eu-west-1",
+            "endpoint": "https://dynamodb.eu-west-1.amazonaws.com",
+            "profile": "dynamodbuser",
+            "self_chat_service_id": 5,
+            "table_config": {
+                "users": {
+                    "name": "RiandyTryUsers",
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "auth": {
+                    "name": "RiandyTryAuth",
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "tagunique": {
+                    "name": "RiandyTryTagUnique",
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "topics": {
+                    "name": "RiandyTryTopics",
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "subscriptions": {
+                    "name": "RiandyTrySubscriptions",
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "messages": {
+                    "name": "RiandyTryMessages",
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                }
+            },
+            "index_config": {
+                "userid": {
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "Source": {
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "UserUpdatedAt": {
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                },
+                "Topic": {
+                    "provisioned_throughput": {
+                        "read_capacity": 5,
+                        "write_capacity": 5
+                    }
+                }
+            }
+		}
+	}
+}

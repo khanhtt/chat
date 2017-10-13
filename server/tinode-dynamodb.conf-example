@@ -28,6 +28,26 @@
 			"region": "eu-west-1",
             "endpoint": "https://dynamodb.eu-west-1.amazonaws.com",
 			"profile": "dynamodbuser"
+		},
+		"table_config": {
+			"users": {
+				"name": "RiandyTryUsers"
+			},
+			"auth": {
+				"name": "RiandyTryAuth"
+			},
+			"tagunique": {
+				"name": "RiandyTryTagUnique"
+			},
+			"topics": {
+				"name": "RiandyTryTopics"
+			},
+			"subscriptions": {
+				"name": "RiandyTrySubscriptions"
+			},
+			"messages": {
+				"name": "RiandyTryMessages"
+			}
 		}
 	},
 
