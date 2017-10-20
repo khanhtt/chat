@@ -60,7 +60,7 @@ var (
 	MESSAGES_TABLE         string = "TinodeMessages"
 	MAX_RESULTS            int    = 100
 	MAX_DELETE_ITEMS       int    = 25
-	MAX_MESSAGES_RETRIEVED int    = 1024 // max messages retrieved in single get messages operation
+	MAX_MESSAGES_RETRIEVED int    = 100 // max messages retrieved in single get messages operation
 
 	EXPIRE_DURATION_MESSAGE_GROUP int = 604800   // 1 week
 	EXPIRE_DURATION_MESSAGE_ME    int = 2592000  // 1 month
@@ -68,6 +68,8 @@ var (
 
 	SELF_TALK_SERVICE_USER_ID t.Uid = 5
 )
+
+const MAX_BATCH_GET_ITEM int = 100
 
 type ErrorLogger struct {
 	Tag string
@@ -1186,33 +1188,31 @@ func (a *DynamoDBAdapter) TopicsForUser(uid t.Uid, keepDeleted bool) ([]t.Subscr
 
 func (a *DynamoDBAdapter) UsersForTopic(topic string, keepDeleted bool) ([]t.Subscription, error) {
 	// get all subscriptions by topic
-	eav, err := dynamodbattribute.MarshalMap(map[string]string{
-		":Topic": topic,
-	})
-	if err != nil {
-		return nil, err
-	}
+	eav, _ := dynamodbattribute.MarshalMap(map[string]string{":Topic": topic})
 	input := &dynamodb.QueryInput{
 		ExpressionAttributeValues: eav,
 		IndexName:                 aws.String("Topic"),
 		TableName:                 aws.String(SUBSCRIPTIONS_TABLE),
 		KeyConditionExpression:    aws.String("Topic = :Topic"),
-		//Limit: aws.Int64(int64(MAX_RESULTS)), // ini juga nggak make sense kalau di limit sebenarnya, kecuali ada confignya
 	}
 	if !keepDeleted {
 		input.FilterExpression = aws.String("DeletedAt <> NOT_NULL")
 	}
 	result, err := a.svc.Query(input)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to fetch subscriptions due: %v", err)
 	}
+
 	var items []map[string]*dynamodb.AttributeValue
 	items = append(items, result.Items...)
+
+	// attempt to get remaining subscriptions if any
 	for len(result.LastEvaluatedKey) != 0 {
 		input.ExclusiveStartKey = result.LastEvaluatedKey
 		result, err = a.svc.Query(input)
 		if err != nil {
-			return nil, err
+			log.Println(fmt.Errorf("unable to fetch remaining subscriptions due: %v", err))
+			break
 		}
 		items = append(items, result.Items...)
 	}
@@ -1220,35 +1220,67 @@ func (a *DynamoDBAdapter) UsersForTopic(topic string, keepDeleted bool) ([]t.Sub
 	// parse subscriptions
 	var subs []t.Subscription
 	if err = dynamodbattribute.UnmarshalListOfMaps(items, &subs); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to parse subscriptions due: %v", err)
 	}
+
+	// make container for joining subscriptions & user's public info
 	join := make(map[string]*t.Subscription)
-	var kv []map[string]*dynamodb.AttributeValue
+	var usersToLookUp []map[string]*dynamodb.AttributeValue
 	for i := 0; i < len(subs); i++ {
 		join[subs[i].User] = &subs[i]
 		el, err := dynamodbattribute.MarshalMap(UserKey{subs[i].User})
 		if err != nil {
-			return nil, err
+			continue
 		}
-		kv = append(kv, el)
+		usersToLookUp = append(usersToLookUp, el)
 	}
 
-	if len(kv) > 0 {
-		// fetch public value of user
-		resUsers, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{
-			RequestItems: map[string]*dynamodb.KeysAndAttributes{USERS_TABLE: {Keys: kv}},
-		})
-		if err != nil {
-			return nil, err
+	// attempt to fetch public value of users
+	if len(usersToLookUp) > 0 {
+		nProcess := int(math.Ceil(float64(len(usersToLookUp)) / float64(MAX_BATCH_GET_ITEM)))
+		errChan := make(chan error)
+
+		var err error
+		for i := 0; i < nProcess; i++ {
+			go func(i int) {
+				var items []map[string]*dynamodb.AttributeValue
+				startIndex := i * MAX_BATCH_GET_ITEM
+				endIndex := startIndex + int(math.Min(float64(MAX_BATCH_GET_ITEM), float64(len(usersToLookUp)-startIndex)))
+				requestItems := map[string]*dynamodb.KeysAndAttributes{USERS_TABLE: {Keys: usersToLookUp[startIndex:endIndex]}}
+
+				for len(requestItems) > 0 {
+					resUsers, err := a.svc.BatchGetItem(&dynamodb.BatchGetItemInput{RequestItems: requestItems})
+					if err != nil {
+						errChan <- fmt.Errorf("unable to fetch users public info due: %v", err)
+						if len(items) > 0 {
+							break
+						} else {
+							return
+						}
+					}
+					items = append(items, resUsers.Responses[USERS_TABLE]...)
+					requestItems = resUsers.UnprocessedKeys
+				}
+				var usrs []t.User
+				if err = dynamodbattribute.UnmarshalListOfMaps(items, &usrs); err != nil {
+					errChan <- fmt.Errorf("unable to parse responses of users public due: %v", err)
+					return
+				}
+				// join result with main result
+				for _, usr := range usrs {
+					if sub, ok := join[usr.Id]; ok {
+						sub.ObjHeader.MergeTimes(&usr.ObjHeader)
+						sub.SetPublic(usr.Public)
+					}
+				}
+				errChan <- nil
+			}(i)
 		}
-		var usrs []t.User
-		if err = dynamodbattribute.UnmarshalListOfMaps(resUsers.Responses[USERS_TABLE], &usrs); err != nil {
-			return nil, err
-		}
-		for _, usr := range usrs {
-			if sub, ok := join[usr.Id]; ok {
-				sub.ObjHeader.MergeTimes(&usr.ObjHeader)
-				sub.SetPublic(usr.Public)
+		// wait for all process to complete
+		for i := 0; i < nProcess; i++ {
+			err = <-errChan
+			if err != nil {
+				log.Println(err)
 			}
 		}
 	}
@@ -1710,10 +1742,9 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
 
 	log.Printf("MessageGetAll() called, topic: %v, forUser: %v, opts: %v", topic, forUser.String(), opts)
 
-	eLog := ErrorLogger{"MessageGetAll"}
 	since := 0
 	before := math.MaxInt32
-	limit := uint(MAX_MESSAGES_RETRIEVED)
+	numMessagesRetrieved := uint(MAX_MESSAGES_RETRIEVED)
 
 	if opts != nil {
 		if opts.Since > 0 {
@@ -1722,8 +1753,8 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
 		if opts.Before > 0 {
 			before = opts.Before
 		}
-		if opts.Limit > 0 && opts.Limit < limit {
-			limit = opts.Limit
+		if opts.Limit > 0 && opts.Limit < numMessagesRetrieved {
+			numMessagesRetrieved = opts.Limit
 		}
 	}
 
@@ -1733,44 +1764,43 @@ func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.Bro
 		":Before": before,
 	})
 	if err != nil {
-		eLog.LogError(err)
-		return nil, err
+		return nil, fmt.Errorf("unable to parse expression attribute values due: %v", err)
 	}
 
 	result, err := a.svc.Query(&dynamodb.QueryInput{
 		ExpressionAttributeValues: eav,
 		KeyConditionExpression:    aws.String("Topic = :Topic and SeqId between :Since and :Before"),
 		TableName:                 aws.String(MESSAGES_TABLE),
-		Limit:                     aws.Int64(int64(limit)),
+		Limit:                     aws.Int64(int64(numMessagesRetrieved)),
 		ScanIndexForward:          aws.Bool(false),
 	})
 	if err != nil {
-		eLog.LogError(err)
-		return nil, err
+		return nil, fmt.Errorf("unable fetch items due: %v", err)
 	}
 	var items []map[string]*dynamodb.AttributeValue
 	items = append(items, result.Items...)
 
-	for len(result.LastEvaluatedKey) != 0 {
+	itemLeft := int(numMessagesRetrieved) - len(items)
+	for itemLeft > 0 && len(result.LastEvaluatedKey) != 0 {
 		result, err = a.svc.Query(&dynamodb.QueryInput{
 			ExpressionAttributeValues: eav,
 			KeyConditionExpression:    aws.String("Topic = :Topic and SeqId between :Since and :Before"),
 			TableName:                 aws.String(MESSAGES_TABLE),
-			Limit:                     aws.Int64(int64(limit)),
+			Limit:                     aws.Int64(int64(itemLeft)),
 			ExclusiveStartKey:         result.LastEvaluatedKey,
 			ScanIndexForward:          aws.Bool(false),
 		})
 		if err != nil {
-			eLog.LogError(err)
-			return nil, err
+			log.Println(fmt.Errorf("unable to fetch remaining items due to: %v, last evaluated key: %v", err, result.LastEvaluatedKey))
+			break
 		}
 		items = append(items, result.Items...)
+		itemLeft = int(numMessagesRetrieved) - len(items) // update just in case there dynamodb make pagination again
 	}
 
 	var msgs []t.Message
 	if err = dynamodbattribute.UnmarshalListOfMaps(items, &msgs); err != nil {
-		eLog.LogError(err)
-		return nil, err
+		return nil, fmt.Errorf("unable to marshal items into []t.Message due: %v", err)
 	}
 
 	requester := forUser.String()
