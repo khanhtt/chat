@@ -47,7 +47,8 @@
 				"messages": {
 					"name": "RiandyTryMessages"
 				}
-			}
+			},
+			"debug_mode": true
 		}
 	},
 
