@@ -403,19 +403,22 @@ func (a *DynamoDBAdapter) CreateDb(reset bool) error {
 	})
 	log.Printf("%v table created", MESSAGES_TABLE)
 
-	// set TTL field to messages table
-	_, err = a.svc.UpdateTimeToLive(&dynamodb.UpdateTimeToLiveInput{
-		TableName: aws.String(MESSAGES_TABLE),
-		TimeToLiveSpecification: &dynamodb.TimeToLiveSpecification{
-			AttributeName: aws.String("ExpireTime"),
-			Enabled:       aws.Bool(true),
-		},
-	})
-	if err != nil && !strings.Contains(err.Error(), "TimeToLive is already enabled") {
-		log.Println(err)
-		return err
+	// only set TTL field if it is on online mode
+	if len(settings.Profile) > 0 {
+		// set TTL field to messages table
+		_, err = a.svc.UpdateTimeToLive(&dynamodb.UpdateTimeToLiveInput{
+			TableName: aws.String(MESSAGES_TABLE),
+			TimeToLiveSpecification: &dynamodb.TimeToLiveSpecification{
+				AttributeName: aws.String("ExpireTime"),
+				Enabled:       aws.Bool(true),
+			},
+		})
+		if err != nil && !strings.Contains(err.Error(), "TimeToLive is already enabled") {
+			log.Println(err)
+			return err
+		}
+		log.Printf("%v ttl field set to active", MESSAGES_TABLE)
 	}
-	log.Printf("%v ttl field set to active", MESSAGES_TABLE)
 
 	// create table with secondary indexes
 	log.Printf("Creating tables with secondary indexes: %v, %v, %v", AUTH_TABLE, TAGUNIQUE_TABLE, SUBSCRIPTIONS_TABLE)
@@ -1818,9 +1821,7 @@ func (a *DynamoDBAdapter) MessageSave(msg *t.Message) error {
 // ini nanti pattern fetch message perlu dijelaskan ke k.dimas sm k.yacob
 // ini perlu di test dgn payload message yg banyak
 func (a *DynamoDBAdapter) MessageGetAll(topic string, forUser t.Uid, opts *t.BrowseOpt) ([]t.Message, error) {
-
-	log.Printf("MessageGetAll() called, topic: %v, forUser: %v, opts: %v", topic, forUser.String(), opts)
-
+	logDebugMessage(fmt.Sprintf("MessageGetAll(topic: %v, forUser: %v, opts: %v)", topic, forUser, opts))
 	since := 0
 	before := math.MaxInt32
 	numMessagesRetrieved := uint(MAX_MESSAGES_RETRIEVED)
