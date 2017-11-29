@@ -43,6 +43,7 @@ const (
 	MAX_RESULTS         = 1024
 	MAX_SUBSCRIBERS     = 128
 	MAX_DELETE_MESSAGES = 128
+	LATENCY_DURATION    = time.Duration(100 * time.Millisecond)
 )
 
 // Open initializes rethinkdb session
@@ -283,6 +284,7 @@ func (a *RethinkDbAdapter) GetAuthRecord(unique string) (t.Uid, int, []byte, tim
 
 // UserGet fetches a single user by user id. If user is not found it returns (nil, nil)
 func (a *RethinkDbAdapter) UserGet(uid t.Uid) (*t.User, error) {
+	time.Sleep(LATENCY_DURATION)
 	if row, err := rdb.DB(a.dbName).Table("users").Get(uid.String()).Run(a.conn); err == nil && !row.IsNil() {
 		var user t.User
 		if err = row.One(&user); err == nil {
@@ -656,6 +658,7 @@ func (a *RethinkDbAdapter) SubsLastSeen(topic string, user t.Uid, lastSeen map[s
 
 // SubsForUser loads a list of user's subscriptions to topics. Does NOT read Public value.
 func (a *RethinkDbAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Subscription, error) {
+	time.Sleep(LATENCY_DURATION)
 	if forUser.IsZero() {
 		return nil, errors.New("RethinkDb adapter: invalid user ID in SubsForUser")
 	}
@@ -681,6 +684,7 @@ func (a *RethinkDbAdapter) SubsForUser(forUser t.Uid, keepDeleted bool) ([]t.Sub
 
 // SubsForTopic fetches all subsciptions for a topic.
 func (a *RethinkDbAdapter) SubsForTopic(topic string, keepDeleted bool) ([]t.Subscription, error) {
+	time.Sleep(LATENCY_DURATION)
 	//log.Println("Loading subscriptions for topic ", topic)
 
 	// must load User.Public for p2p topics
