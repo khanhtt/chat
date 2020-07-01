@@ -7,8 +7,8 @@ FROM golang
 
 MAINTAINER Gene Sokolov <or.else@gmail.com>
 
-RUN go get github.com/tinode/chat/tinode-db \
-	&& go install -tags rethinkdb github.com/tinode/chat/tinode-db
+RUN go get github.com/khanhtt/chat/tinode-db \
+	&& go install -tags rethinkdb github.com/khanhtt/chat/tinode-db
 
 # Key to initialize UID generator. Replace with your own
 # for production

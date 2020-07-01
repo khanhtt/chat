@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinode/chat/server/store"
-	"github.com/tinode/chat/server/store/types"
+	"github.com/khanhtt/chat/server/store"
+	"github.com/khanhtt/chat/server/store/types"
 )
 
 // Request to hub to subscribe session to topic

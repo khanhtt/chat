@@ -5,9 +5,9 @@ import (
 	"errors"
 	// "log"
 
-	"github.com/tinode/chat/server/push"
-	"github.com/tinode/chat/server/store"
-	t "github.com/tinode/chat/server/store/types"
+	"github.com/khanhtt/chat/server/push"
+	"github.com/khanhtt/chat/server/store"
+	t "github.com/khanhtt/chat/server/store/types"
 	"github.com/tinode/fcm"
 )
 

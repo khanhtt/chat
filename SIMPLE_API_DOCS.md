@@ -9,9 +9,11 @@ This documentation is made purely based on my understanding on Tinode. If you fo
 Thanks.
 
 ## Basic Concept
+
 Tinode follow loosely publish & subscribe architecture. So it is a little bit different than normal http request & response architecture. For example in Tinode, it is common to get multiple packet as a response just from a single request packet.
 
 Notice following example request for getting message history from P2P topic we are currently subscribing:
+
 ```
 {
   "get": {
@@ -21,7 +23,9 @@ Notice following example request for getting message history from P2P topic we a
   }
 }
 ```
+
 The response of this request would be:
+
 ```
 {
   "data": {
@@ -84,9 +88,10 @@ In Tinode, after we successfully connecting socket connection to the server, the
 - login with existing account by sending `{login}` packet
 
 **Example request:**
+
 ```
-{  
-   "hi":{  
+{
+   "hi":{
       "id":"initiating connection",
       "ver":"0.13",
       "ua":"TinodeWeb/0.13 (MacIntel) tinodejs/0.13"
@@ -95,6 +100,7 @@ In Tinode, after we successfully connecting socket connection to the server, the
 ```
 
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -109,7 +115,9 @@ In Tinode, after we successfully connecting socket connection to the server, the
   }
 }
 ```
+
 **Error response:**
+
 ```
 {
   "ctrl": {
@@ -123,34 +131,36 @@ In Tinode, after we successfully connecting socket connection to the server, the
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#hi
+- https://github.com/khanhtt/chat/blob/devel/API.md#hi
 
 ## Create New Account Credentials
 
 To create new account, we use `{acc}` packet. Notice that the value of `acc.user` need to be set to `"new"`.
 
 **Example Request:**
+
 ```
-{  
-   "acc":{  
+{
+   "acc":{
       "id":"create new user",
       "user":"new",
       "scheme":"basic",
       "secret":"bmV3MTpuZXcx",
-      "tags":[  
+      "tags":[
          "email:new1@example.com"
       ],
-      "desc":{  
-         "public":{  
+      "desc":{
+         "public":{
             "fn":"new1"
          }
       }
    }
 }
 ```
+
 There are 3 other values need to be noticed: `acc.secret`, `acc.tags`, & `acc.desc.public`.
 
-`acc.secret` should contains credential information in form of `username:password` which already encoded by `base64` function. This is the format we are using since we set `acc.scheme` to `"basic"`. In above example, if we decode	`acc.secret` value, it will return `new1:new1`.
+`acc.secret` should contains credential information in form of `username:password` which already encoded by `base64` function. This is the format we are using since we set `acc.scheme` to `"basic"`. In above example, if we decode `acc.secret` value, it will return `new1:new1`.
 
 `acc.tags` should contains array of string which will make this user discoverable by other user. If this value omitted, this user won't be able to be discovered by other user. But still it could interact with others.
 
@@ -159,6 +169,7 @@ There are 3 other values need to be noticed: `acc.secret`, `acc.tags`, & `acc.de
 Notice that after the account created, the information we put on `acc.desc` will be transferred to `me` topic of this account. Thus if we want to change this information later, we need to change it from `me` topic. For other 2 values, we still need to change it via `{acc}` packet.
 
 **Success Response:**
+
 ```
 {
   "ctrl": {
@@ -183,7 +194,9 @@ Notice that after the account created, the information we put on `acc.desc` will
   }
 }
 ```
+
 **Error Response:**
+
 ```
 {
   "ctrl": {
@@ -194,6 +207,7 @@ Notice that after the account created, the information we put on `acc.desc` will
   }
 }
 ```
+
 ```
 {
   "ctrl": {
@@ -208,6 +222,7 @@ Notice that after the account created, the information we put on `acc.desc` will
 There is also one optional parameter called `login`. We could set this parameter to `true` if we want our newly created user to be logged in directly.
 
 **Example request:**
+
 ```
 {
   "acc": {
@@ -227,7 +242,9 @@ There is also one optional parameter called `login`. We could set this parameter
   }
 }
 ```
+
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -255,7 +272,9 @@ There is also one optional parameter called `login`. We could set this parameter
   }
 }
 ```
+
 **Error response:**
+
 ```
 {
   "ctrl": {
@@ -266,6 +285,7 @@ There is also one optional parameter called `login`. We could set this parameter
   }
 }
 ```
+
 ```
 {
   "ctrl": {
@@ -276,20 +296,23 @@ There is also one optional parameter called `login`. We could set this parameter
   }
 }
 ```
+
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#acc
+- https://github.com/khanhtt/chat/blob/devel/API.md#acc
 
 ## Update Existing Account Credentials
- To update existing account credentials, we use `{acc}` packet with omitting `acc.user` field. The credentials possible to be updated with this packet are `acc.secret` & `acc.tags`.
+
+To update existing account credentials, we use `{acc}` packet with omitting `acc.user` field. The credentials possible to be updated with this packet are `acc.secret` & `acc.tags`.
 
 Unfortunately this feature has yet to be supported.
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/server/session.go#L601-L611
+- https://github.com/khanhtt/chat/blob/devel/server/session.go#L601-L611
 
 ## Login
+
 In Tinode, when we are authenticating the user, technically we are not authenticating the user itself, but rather authenticating current session which the user using to connect to server.
 
 So what happens when websocket session suddenly destroyed? Such as when there is a connection problem whether on client or server. Do we need to authenticate again?
@@ -299,6 +322,7 @@ The answer to above question is yes, we need to authenticate our session again. 
 By design, it is possible for one user to have multiple active session at the same time. Thus user could login from multiple devices at the same time.
 
 **Example `basic` request:**
+
 ```
 {
   "login": {
@@ -310,6 +334,7 @@ By design, it is possible for one user to have multiple active session at the sa
 ```
 
 **Example `token` request:**
+
 ```
 {
   "login": {
@@ -321,6 +346,7 @@ By design, it is possible for one user to have multiple active session at the sa
 ```
 
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -338,6 +364,7 @@ By design, it is possible for one user to have multiple active session at the sa
 ```
 
 **Error responses:**
+
 ```
 {
   "ctrl": {
@@ -348,6 +375,7 @@ By design, it is possible for one user to have multiple active session at the sa
   }
 }
 ```
+
 ```
 {
   "ctrl": {
@@ -361,7 +389,7 @@ By design, it is possible for one user to have multiple active session at the sa
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#login
+- https://github.com/khanhtt/chat/blob/devel/API.md#login
 
 ## Make Online Presence
 
@@ -369,9 +397,10 @@ By design, it is possible for one user to have multiple active session at the sa
 
 When user login, it doesn't automatically come online. It needs to subscribe to its `me` topic first. When user already subscribed, its presence would be published to all other users which currently subscribed to this user's `me` topic (have `P2P` connection with this user).
 
-When other user interact with this user's `me` topic, such as sending message to this user, create new subscription  to this user, & invite this user to a group topic, then this user would also be notified. We could use `{sub}` packet to make current session subscribe to `me` topic.
+When other user interact with this user's `me` topic, such as sending message to this user, create new subscription to this user, & invite this user to a group topic, then this user would also be notified. We could use `{sub}` packet to make current session subscribe to `me` topic.
 
 **Example request:**
+
 ```
 {
   "sub": {
@@ -382,6 +411,7 @@ When other user interact with this user's `me` topic, such as sending message to
 ```
 
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -402,6 +432,7 @@ When other user interact with this user's `me` topic, such as sending message to
 ```
 
 **Error response:**
+
 ```
 {
   "ctrl": {
@@ -420,6 +451,7 @@ Notice that `sub` packet doesn't only used for subscribing to `me` topic, but al
 To get `me` profile information (public information, private information, & default acccess for `P2P` topic), we use `{get}` packet with `get.what` value set to `"desc"`
 
 **Example request:**
+
 ```
 {
   "get": {
@@ -431,6 +463,7 @@ To get `me` profile information (public information, private information, & defa
 ```
 
 **Success response:**
+
 ```
 {
   "meta": {
@@ -459,6 +492,7 @@ To get `me` profile information (public information, private information, & defa
 To get existing `me` subscribers (a.k.a other users which already have P2P connection with this user), we use `{get}` packet with `get.what` value set to `"sub"`.
 
 **Example request:**
+
 ```
 {
   "get": {
@@ -470,6 +504,7 @@ To get existing `me` subscribers (a.k.a other users which already have P2P conne
 ```
 
 **Success response:**
+
 ```
 {
   "meta": {
@@ -541,6 +576,7 @@ To get existing `me` subscribers (a.k.a other users which already have P2P conne
 To get `me` notification (invitation to join topic & request approval), we use `{get}` packet with `get.what` value set to `"data"`.
 
 **Example request:**
+
 ```
 {
   "get": {
@@ -552,6 +588,7 @@ To get `me` notification (invitation to join topic & request approval), we use `
 ```
 
 **Success response:**
+
 ```
 {
   "data": {
@@ -687,12 +724,13 @@ To get `me` notification (invitation to join topic & request approval), we use `
 ### Bulk Command to Subscribe, Get Profile, Get Subscribers, & Get Notification of `me`
 
 Luckily Tinode provide convenient way to do all above actions. We could just do it with following command:
+
 ```
-{  
-   "sub":{  
+{
+   "sub":{
       "id":"make online presence",
       "topic":"me",
-      "get":{  
+      "get":{
          "what":"desc sub data"
       }
    }
@@ -700,6 +738,7 @@ Luckily Tinode provide convenient way to do all above actions. We could just do 
 ```
 
 If we only want to fetch the `me` info, we could use following command:
+
 ```
 {
   "get": {
@@ -714,9 +753,9 @@ The response of these commands are combination between all of actions called.
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#sub
-- https://github.com/tinode/chat/blob/devel/API.md#get
-- https://github.com/tinode/chat/blob/devel/API.md#topics
+- https://github.com/khanhtt/chat/blob/devel/API.md#sub
+- https://github.com/khanhtt/chat/blob/devel/API.md#get
+- https://github.com/khanhtt/chat/blob/devel/API.md#topics
 
 ### Receiving `me` Notifications
 
@@ -725,6 +764,7 @@ When the user already subscribed to `me` topic, they will be able to receive not
 The notification will be sent by the server on various use cases. Some of the most common use cases are receiving online & message notification from other user (message notification is not the message itself, basically it is `{pres}` packet telling that other user is sending message to this user). For the complete list of use cases please see the references.
 
 **Example packets:**
+
 ```
 {
   "pres": {
@@ -748,7 +788,7 @@ The notification will be sent by the server on various use cases. Some of the mo
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#pres
+- https://github.com/khanhtt/chat/blob/devel/API.md#pres
 
 ## Chat With Another User (P2P Topic)
 
@@ -759,6 +799,7 @@ If we want to connect with new user, the first thing we need to know is its `id`
 So how does this work? First we need to subscribe to `fnd` topic using `{sub}` packet. Then we set the user tags to private value on `fnd` topic by using `set` packet. After `set` packet is acknowledged by the server, then we send `get` packet to retrieve the results. After we process the result, we set `fnd` private value to empty, then we send `leave` packet to leave `fnd` topic.
 
 **Example `sub` request:**
+
 ```
 {
   "sub": {
@@ -769,6 +810,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Success `sub` response:**
+
 ```
 {
   "ctrl": {
@@ -789,6 +831,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Example `set` request:**
+
 ```
 {
   "set": {
@@ -804,6 +847,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Success `set` response:**
+
 ```
 {
   "ctrl": {
@@ -817,6 +861,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Example `get` request:**
+
 ```
 {
   "get": {
@@ -828,6 +873,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Success `get` response:**
+
 ```
 {
   "meta": {
@@ -852,7 +898,9 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
   }
 }
 ```
+
 **Example `set` request:**
+
 ```
 {
   "set": {
@@ -866,6 +914,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Success `set` request:**
+
 ```
 {
   "ctrl": {
@@ -879,6 +928,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Example `leave` request:**
+
 ```
 {
   "leave": {
@@ -889,6 +939,7 @@ So how does this work? First we need to subscribe to `fnd` topic using `{sub}` p
 ```
 
 **Success `leave` response:**
+
 ```
 {
   "ctrl": {
@@ -905,8 +956,8 @@ Currently there is no single command to do all of these actions.
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#fnd-topic-contacts-discovery
-- https://github.com/tinode/chat/blob/devel/API.md#leave
+- https://github.com/khanhtt/chat/blob/devel/API.md#fnd-topic-contacts-discovery
+- https://github.com/khanhtt/chat/blob/devel/API.md#leave
 
 ### Subscribing / Activate P2P Topic
 
@@ -915,6 +966,7 @@ After we found the user's `id` we want to connect which located in `meta.sub[0].
 After we subscribed to `p2p` topic, we will be able to receive message from & send message to our target.
 
 **Example request:**
+
 ```
 {
   "sub": {
@@ -925,6 +977,7 @@ After we subscribed to `p2p` topic, we will be able to receive message from & se
 ```
 
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -946,13 +999,14 @@ After we subscribed to `p2p` topic, we will be able to receive message from & se
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#sub
+- https://github.com/khanhtt/chat/blob/devel/API.md#sub
 
 ### Getting P2P Message History
 
 To get message history, we use `get` packet.
 
 **Example request:**
+
 ```
 {
   "get": {
@@ -964,6 +1018,7 @@ To get message history, we use `get` packet.
 ```
 
 **Success response:**
+
 ```
 {
   "data": {
@@ -1018,13 +1073,14 @@ To get message history, we use `get` packet.
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#get
+- https://github.com/khanhtt/chat/blob/devel/API.md#get
 
 ### Send Message to P2P Topic
 
 We could use `{pub}` packet to send message to `p2p` topic we are already subscribed.
 
 **Example request:**
+
 ```
 {
   "pub": {
@@ -1034,7 +1090,9 @@ We could use `{pub}` packet to send message to `p2p` topic we are already subscr
   }
 }
 ```
+
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -1059,15 +1117,17 @@ We could use `{pub}` packet to send message to `p2p` topic we are already subscr
   }
 }
 ```
+
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#pub
+- https://github.com/khanhtt/chat/blob/devel/API.md#pub
 
 ### Receiving Message from P2P Topic
 
 We will receive the message sent by other user by `{pub}` packet in form of `{data}` packet.
 
 **Example packet:**
+
 ```
 {
   "data": {
@@ -1082,13 +1142,14 @@ We will receive the message sent by other user by `{pub}` packet in form of `{da
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#data
+- https://github.com/khanhtt/chat/blob/devel/API.md#data
 
 ### Leave P2P Topic
 
 After we're done with `p2p` topic, we should leave the topic to stop receiving message with target user.
 
 **Example request:**
+
 ```
 {
   "leave": {
@@ -1097,7 +1158,9 @@ After we're done with `p2p` topic, we should leave the topic to stop receiving m
   }
 }
 ```
+
 **Success response:**
+
 ```
 {
   "ctrl": {
@@ -1109,7 +1172,9 @@ After we're done with `p2p` topic, we should leave the topic to stop receiving m
   }
 }
 ```
+
 **Error responses:**
+
 ```
 {
   "ctrl": {
@@ -1121,6 +1186,7 @@ After we're done with `p2p` topic, we should leave the topic to stop receiving m
   }
 }
 ```
+
 ```
 {
   "ctrl": {
@@ -1135,7 +1201,7 @@ After we're done with `p2p` topic, we should leave the topic to stop receiving m
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#leave
+- https://github.com/khanhtt/chat/blob/devel/API.md#leave
 
 ## Logout
 
@@ -1143,4 +1209,4 @@ By design, Tinode doesn't support user logout. The reason is maybe because what 
 
 **References:**
 
-- https://github.com/tinode/chat/blob/devel/API.md#users
+- https://github.com/khanhtt/chat/blob/devel/API.md#users

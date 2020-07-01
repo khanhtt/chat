@@ -3,7 +3,7 @@ package auth
 import (
 	"time"
 
-	"github.com/tinode/chat/server/store/types"
+	"github.com/khanhtt/chat/server/store/types"
 )
 
 const (

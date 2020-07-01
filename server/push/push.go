@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	t "github.com/tinode/chat/server/store/types"
+	t "github.com/khanhtt/chat/server/store/types"
 )
 
 type PushTo struct {

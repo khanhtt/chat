@@ -4,7 +4,7 @@ package adapter
 import (
 	"time"
 
-	t "github.com/tinode/chat/server/store/types"
+	t "github.com/khanhtt/chat/server/store/types"
 )
 
 // Adapter is the interface that must be implemented by a database

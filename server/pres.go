@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/tinode/chat/server/store"
-	"github.com/tinode/chat/server/store/types"
+	"github.com/khanhtt/chat/server/store"
+	"github.com/khanhtt/chat/server/store/types"
 )
 
 type PresParams struct {

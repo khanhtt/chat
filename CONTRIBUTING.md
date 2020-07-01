@@ -2,17 +2,15 @@
 
 We're happy you want to contribute! You can help us in different ways:
 
-- [Open an issue](https://github.com/tinode/chat/issues) with suggestions for improvements
+- [Open an issue](https://github.com/khanhtt/chat/issues) with suggestions for improvements
 - Fork this repository and submit a pull request
 - Improve the documentation
 
-
-To submit a pull request, fork the [repository](https://github.com/tinode/chat) and then clone your fork:
+To submit a pull request, fork the [repository](https://github.com/khanhtt/chat) and then clone your fork:
 
     git clone git@github.com:<your-repo-name>/chat.git
 
-Make your suggested changes, `git push` and then [submit a pull request](https://github.com/tinode/chat/compare/). Note that before we can accept your pull requests, you need to sign our [Contributor License Agreement](CLA.md).
-
+Make your suggested changes, `git push` and then [submit a pull request](https://github.com/khanhtt/chat/compare/). Note that before we can accept your pull requests, you need to sign our [Contributor License Agreement](CLA.md).
 
 ## Why is the Contributor License Agreement necessary?
 

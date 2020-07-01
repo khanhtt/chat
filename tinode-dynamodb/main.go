@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 
-	_ "github.com/tinode/chat/server/db/dynamodb"
-	"github.com/tinode/chat/server/store"
+	_ "github.com/khanhtt/chat/server/db/dynamodb"
+	"github.com/khanhtt/chat/server/store"
 )
 
 type configType struct {

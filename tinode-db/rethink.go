@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/tinode/chat/server/auth_basic"
-	_ "github.com/tinode/chat/server/db/rethinkdb"
-	"github.com/tinode/chat/server/store"
-	"github.com/tinode/chat/server/store/types"
+	_ "github.com/khanhtt/chat/server/auth_basic"
+	_ "github.com/khanhtt/chat/server/db/rethinkdb"
+	"github.com/khanhtt/chat/server/store"
+	"github.com/khanhtt/chat/server/store/types"
 )
 
 func gen_rethink(reset bool, dbsource string, data *Data) {

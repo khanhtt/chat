@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinode/chat/server/store"
-	t "github.com/tinode/chat/server/store/types"
+	"github.com/khanhtt/chat/server/store"
+	t "github.com/khanhtt/chat/server/store/types"
 	rdb "gopkg.in/gorethink/gorethink.v2"
 )
 

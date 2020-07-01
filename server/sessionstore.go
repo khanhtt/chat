@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/tinode/chat/server/store"
+	"github.com/khanhtt/chat/server/store"
 )
 
 type SessionStore struct {

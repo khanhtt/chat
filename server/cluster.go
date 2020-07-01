@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	rh "github.com/tinode/chat/server/ringhash"
-	"github.com/tinode/chat/server/store/types"
+	rh "github.com/khanhtt/chat/server/ringhash"
+	"github.com/khanhtt/chat/server/store/types"
 )
 
 const DEFAULT_CLUSTER_RECONNECT = 200 * time.Millisecond

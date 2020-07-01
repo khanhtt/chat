@@ -7,7 +7,7 @@ import (
 	"log"
 	"path/filepath"
 
-	"github.com/tinode/chat/server/store"
+	"github.com/khanhtt/chat/server/store"
 )
 
 type configType struct {

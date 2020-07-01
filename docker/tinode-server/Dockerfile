@@ -13,8 +13,8 @@ FROM golang
 
 MAINTAINER Gene Sokolov <gene@tinode.co>
 
-RUN go get github.com/tinode/chat/server \
-	&& go install -tags rethinkdb github.com/tinode/chat/server
+RUN go get github.com/khanhtt/chat/server \
+	&& go install -tags rethinkdb github.com/khanhtt/chat/server
 
 # Download the demo app and the js bindings
 RUN git clone --depth 1 https://github.com/tinode/example-react-js.git

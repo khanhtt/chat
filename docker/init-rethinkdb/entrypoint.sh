@@ -14,4 +14,4 @@ while IFS='' read -r line || [[ -n $line ]] ; do
 done < /config.template
 
 # Run the generator
-/go/bin/tinode-db --reset --config=/config --data=/go/src/github.com/tinode/chat/tinode-db/data.json
+/go/bin/tinode-db --reset --config=/config --data=/go/src/github.com/khanhtt/chat/tinode-db/data.json

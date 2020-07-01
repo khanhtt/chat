@@ -21,14 +21,14 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/tinode/chat/push_fcm"
-	_ "github.com/tinode/chat/server/auth_basic"
-    _ "github.com/tinode/chat/server/db/dynamodb"
-    _ "github.com/tinode/chat/server/db/rethinkdb"
-	"github.com/tinode/chat/server/push"
-	_ "github.com/tinode/chat/server/push_stdout"
-	"github.com/tinode/chat/server/store"
-	"github.com/tinode/chat/server/store/types"
+	_ "github.com/khanhtt/chat/push_fcm"
+	_ "github.com/khanhtt/chat/server/auth_basic"
+    _ "github.com/khanhtt/chat/server/db/dynamodb"
+    _ "github.com/khanhtt/chat/server/db/rethinkdb"
+	"github.com/khanhtt/chat/server/push"
+	_ "github.com/khanhtt/chat/server/push_stdout"
+	"github.com/khanhtt/chat/server/store"
+	"github.com/khanhtt/chat/server/store/types"
 )
 
 const (
