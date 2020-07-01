@@ -30,22 +30,22 @@
 			"profile": "",
 			"table_config": {
 				"users": {
-					"name": "RiandyTryUsers"
+					"name": "HxroUsers"
 				},
 				"auth": {
-					"name": "RiandyTryAuth"
+					"name": "HxroAuth"
 				},
 				"tagunique": {
-					"name": "RiandyTryTagUnique"
+					"name": "HxroTagUnique"
 				},
 				"topics": {
-					"name": "RiandyTryTopics"
+					"name": "HxroTopics"
 				},
 				"subscriptions": {
-					"name": "RiandyTrySubscriptions"
+					"name": "HxroSubscriptions"
 				},
 				"messages": {
-					"name": "RiandyTryMessages"
+					"name": "HxroMessages"
 				}
 			},
 			"debug_mode": true

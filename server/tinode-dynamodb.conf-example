@@ -25,27 +25,27 @@
 		"uid_key": "la6YsO+bNX/+XIkOqc5Svw==",
 		"adapter": "dynamodb",
 		"adapter_config": {
-			"region": "eu-west-1",
-            "endpoint": "https://dynamodb.eu-west-1.amazonaws.com",
+			"region": "us-west-2",
+            "endpoint": "https://dynamodb.us-west-2.amazonaws.com",
 			"profile": "dynamodbuser",
 			"table_config": {
 				"users": {
-					"name": "RiandyTryUsers"
+					"name": "HxroUsers"
 				},
 				"auth": {
-					"name": "RiandyTryAuth"
+					"name": "HxroAuth"
 				},
 				"tagunique": {
-					"name": "RiandyTryTagUnique"
+					"name": "HxroTagUnique"
 				},
 				"topics": {
-					"name": "RiandyTryTopics"
+					"name": "HxroTopics"
 				},
 				"subscriptions": {
-					"name": "RiandyTrySubscriptions"
+					"name": "HxroSubscriptions"
 				},
 				"messages": {
-					"name": "RiandyTryMessages"
+					"name": "HxroMessages"
 				}
 			},
 			"debug_mode": true
