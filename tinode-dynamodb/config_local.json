@@ -10,42 +10,42 @@
       "self_chat_service_id": 5,
       "table_config": {
         "users": {
-          "name": "HxroUsers",
+          "name": "DevUsers",
           "provisioned_throughput": {
             "read_capacity": 5,
             "write_capacity": 5
           }
         },
         "auth": {
-          "name": "HxroAuth",
+          "name": "DevAuth",
           "provisioned_throughput": {
             "read_capacity": 5,
             "write_capacity": 5
           }
         },
         "tagunique": {
-          "name": "HxroTagUnique",
+          "name": "DevTagUnique",
           "provisioned_throughput": {
             "read_capacity": 5,
             "write_capacity": 5
           }
         },
         "topics": {
-          "name": "HxroTopics",
+          "name": "DevTopics",
           "provisioned_throughput": {
             "read_capacity": 5,
             "write_capacity": 5
           }
         },
         "subscriptions": {
-          "name": "HxroSubscriptions",
+          "name": "DevSubscriptions",
           "provisioned_throughput": {
             "read_capacity": 5,
             "write_capacity": 5
           }
         },
         "messages": {
-          "name": "HxroMessages",
+          "name": "DevMessages",
           "provisioned_throughput": {
             "read_capacity": 5,
             "write_capacity": 5
