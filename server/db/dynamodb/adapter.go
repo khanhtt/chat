@@ -52,12 +52,12 @@ type MessageKey struct {
 }
 
 var (
-	USERS_TABLE            string = "TinodeUsers"
-	AUTH_TABLE             string = "TinodeAuth"
-	TAGUNIQUE_TABLE        string = "TinodeTagUnique"
-	TOPICS_TABLE           string = "TinodeTopics"
-	SUBSCRIPTIONS_TABLE    string = "TinodeSubscriptions"
-	MESSAGES_TABLE         string = "TinodeMessages"
+	USERS_TABLE            string = "HxroDevUsers"
+	AUTH_TABLE             string = "HxroDevAuth"
+	TAGUNIQUE_TABLE        string = "HxroDevTagUnique"
+	TOPICS_TABLE           string = "HxroDevTopics"
+	SUBSCRIPTIONS_TABLE    string = "HxroDevSubscriptions"
+	MESSAGES_TABLE         string = "HxroDevMessages"
 	MAX_RESULTS            int    = 100
 	MAX_DELETE_ITEMS       int    = 25
 	MAX_MESSAGES_RETRIEVED int    = 100 // max messages retrieved in single get messages operation
@@ -768,9 +768,9 @@ func (a *DynamoDBAdapter) UserDelete(id t.Uid, soft bool) error {
 		}
 		_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 			ExpressionAttributeValues: eav,
-			Key:              kv,
-			TableName:        aws.String(USERS_TABLE),
-			UpdateExpression: aws.String("set DeletedAt=:DeletedAt, UpdatedAt=:UpdatedAt"),
+			Key:                       kv,
+			TableName:                 aws.String(USERS_TABLE),
+			UpdateExpression:          aws.String("set DeletedAt=:DeletedAt, UpdatedAt=:UpdatedAt"),
 		})
 		if err != nil {
 			return err
@@ -809,9 +809,9 @@ func (a *DynamoDBAdapter) UserUpdateLastSeen(uid t.Uid, userAgent string, when t
 	// update item
 	_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 		ExpressionAttributeValues: eav,
-		Key:              kv,
-		TableName:        aws.String(USERS_TABLE),
-		UpdateExpression: aws.String("set LastSeen=:LastSeen, UserAgent=:UserAgent"),
+		Key:                       kv,
+		TableName:                 aws.String(USERS_TABLE),
+		UpdateExpression:          aws.String("set LastSeen=:LastSeen, UserAgent=:UserAgent"),
 	})
 	return err
 }
@@ -1002,9 +1002,9 @@ func (a *DynamoDBAdapter) UpdAuthRecord(unique string, authLvl int, secret []byt
 	_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 		ExpressionAttributeNames:  ean,
 		ExpressionAttributeValues: eav,
-		Key:              kv,
-		TableName:        aws.String(AUTH_TABLE),
-		UpdateExpression: aws.String("set #authLvl = :authLvl, #secret = :secret, #expires = :expires"),
+		Key:                       kv,
+		TableName:                 aws.String(AUTH_TABLE),
+		UpdateExpression:          aws.String("set #authLvl = :authLvl, #secret = :secret, #expires = :expires"),
 	})
 	if err != nil {
 		return 0, err
@@ -1623,9 +1623,9 @@ func (a *DynamoDBAdapter) SubsDelete(topic string, user t.Uid) error {
 
 	_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 		ExpressionAttributeValues: eav,
-		Key:              kv,
-		TableName:        aws.String(SUBSCRIPTIONS_TABLE),
-		UpdateExpression: aws.String("set UpdatedAt = :UpdatedAt, DeletedAt = :DeletedAt"),
+		Key:                       kv,
+		TableName:                 aws.String(SUBSCRIPTIONS_TABLE),
+		UpdateExpression:          aws.String("set UpdatedAt = :UpdatedAt, DeletedAt = :DeletedAt"),
 	})
 	return err
 }
@@ -1929,10 +1929,10 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
 		}
 		_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 			ExpressionAttributeValues: eav,
-			Key:                 kv,
-			TableName:           aws.String(USERS_TABLE),
-			UpdateExpression:    ue,
-			ConditionExpression: ce,
+			Key:                       kv,
+			TableName:                 aws.String(USERS_TABLE),
+			UpdateExpression:          ue,
+			ConditionExpression:       ce,
 		})
 		if err != nil {
 			if aerr, ok := err.(awserr.Error); ok && (aerr.Code() == dynamodb.ErrCodeConditionalCheckFailedException) {
@@ -1948,10 +1948,10 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
 		}
 		_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 			ExpressionAttributeValues: eav,
-			Key:                 kv,
-			TableName:           aws.String(TOPICS_TABLE),
-			UpdateExpression:    ue,
-			ConditionExpression: ce,
+			Key:                       kv,
+			TableName:                 aws.String(TOPICS_TABLE),
+			UpdateExpression:          ue,
+			ConditionExpression:       ce,
 		})
 		if err != nil {
 			if aerr, ok := err.(awserr.Error); ok && (aerr.Code() == dynamodb.ErrCodeConditionalCheckFailedException) {
@@ -1976,10 +1976,10 @@ func (a *DynamoDBAdapter) MessageDeleteAll(topic string, before int) error {
 			}
 			_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 				ExpressionAttributeValues: eav,
-				Key:                 kv,
-				TableName:           aws.String(SUBSCRIPTIONS_TABLE),
-				UpdateExpression:    ue,
-				ConditionExpression: ce,
+				Key:                       kv,
+				TableName:                 aws.String(SUBSCRIPTIONS_TABLE),
+				UpdateExpression:          ue,
+				ConditionExpression:       ce,
 			})
 			if err != nil {
 				if aerr, ok := err.(awserr.Error); ok && (aerr.Code() == dynamodb.ErrCodeConditionalCheckFailedException) {
@@ -2033,9 +2033,9 @@ func (a *DynamoDBAdapter) MessageDeleteList(topic string, forUser t.Uid, hard bo
 			}
 			_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 				ExpressionAttributeValues: eav,
-				Key:              kv,
-				TableName:        aws.String(MESSAGES_TABLE),
-				UpdateExpression: ue,
+				Key:                       kv,
+				TableName:                 aws.String(MESSAGES_TABLE),
+				UpdateExpression:          ue,
 			})
 			if err != nil {
 				errCh <- err
@@ -2078,9 +2078,9 @@ func (a *DynamoDBAdapter) DeviceUpsert(uid t.Uid, dev *t.DeviceDef) error {
 	_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 		ExpressionAttributeNames:  ean,
 		ExpressionAttributeValues: eav,
-		Key:              kv,
-		TableName:        aws.String(USERS_TABLE),
-		UpdateExpression: ue,
+		Key:                       kv,
+		TableName:                 aws.String(USERS_TABLE),
+		UpdateExpression:          ue,
 	})
 	return err
 }
@@ -2161,9 +2161,9 @@ func (a *DynamoDBAdapter) DeviceDelete(uid t.Uid, deviceId string) error {
 	ue := aws.String("REMOVE Devices.#device")
 	_, err = a.svc.UpdateItem(&dynamodb.UpdateItemInput{
 		ExpressionAttributeNames: ean,
-		Key:              kv,
-		TableName:        aws.String(USERS_TABLE),
-		UpdateExpression: ue,
+		Key:                      kv,
+		TableName:                aws.String(USERS_TABLE),
+		UpdateExpression:         ue,
 	})
 	return err
 }
